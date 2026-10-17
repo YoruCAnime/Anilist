@@ -1,0 +1,82 @@
+# Keeps the YoruC Holo bio card up to date even when the PC is off.
+# Every 30 minutes GitHub reads your anime (Watching / Rewatching) and manga (Reading / Rereading)
+# lists from AniList and sends them
+# (plus any new covers) to the card. Needs the repository secret BIO_PUSH_KEY.
+# Goes in the repository as  .github/workflows/anilist-bio-sync.yml
+name: AniList bio card sync
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write          # only for the keep-alive step at the end
+
+concurrency:
+  group: anilist-bio-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send the list to the card
+        env:
+          KEY: ${{ secrets.BIO_PUSH_KEY }}
+          CARD: https://yoruc-bio.exosone1994.workers.dev
+          ANILIST_USER: YoruC
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          cat > sync.mjs <<'EOF'
+          const { KEY, CARD, ANILIST_USER, MANUAL } = process.env;
+          const fail = msg => { console.log(`::${MANUAL === 'true' ? 'error' : 'warning'}::${msg}`); process.exit(MANUAL === 'true' ? 1 : 0); };
+          if (!KEY) fail('The repository secret BIO_PUSH_KEY is missing.');
+          // anime Watching / Rewatching + manga Reading / Rereading (never Planning, Paused, Dropped, Completed)
+          const Q = `query($u:String){
+            anime:MediaListCollection(userName:$u,type:ANIME,status_in:[CURRENT,REPEATING],sort:UPDATED_TIME_DESC){lists{entries{...E}}}
+            manga:MediaListCollection(userName:$u,type:MANGA,status_in:[CURRENT,REPEATING],sort:UPDATED_TIME_DESC){lists{entries{...E}}}}
+          fragment E on MediaList{status progress updatedAt media{id type siteUrl status episodes chapters title{english romaji}
+            coverImage{large} nextAiringEpisode{episode airingAt}}}`;
+          const r = await fetch('https://graphql.anilist.co', { method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'YoruC-bio-card-sync (GitHub Actions)' },
+            body: JSON.stringify({ query: Q, variables: { u: ANILIST_USER } }) });
+          if (!r.ok) fail(`AniList answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
+          const j = await r.json();
+          const seen = new Set(), list = [];
+          for (const col of [j.data.anime, j.data.manga]) for (const e of (col ? col.lists : []).flatMap(l => l.entries)) {
+            const m = e.media;
+            if (seen.has(m.id)) continue;
+            seen.add(m.id);
+            list.push({ id: m.id, type: m.type, title: m.title.english || m.title.romaji, coverUrl: m.coverImage.large, url: m.siteUrl,
+              progress: e.progress || 0, episodes: m.episodes, chapters: m.chapters, listStatus: e.status, mediaStatus: m.status, updatedAt: e.updatedAt,
+              next: m.nextAiringEpisode ? { episode: m.nextAiringEpisode.episode, at: m.nextAiringEpisode.airingAt } : null });
+          }
+          list.sort((a, b) => b.updatedAt - a.updatedAt);
+          const u = await fetch(`${CARD}/update?key=${encodeURIComponent(KEY)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ list }) });
+          if (!u.ok) fail(`The card answered ${u.status} (wrong BIO_PUSH_KEY?)`);
+          const res = await u.json();
+          let sent = 0;
+          for (const id of res.missing || []) {
+            const it = list.find(i => i.id === id);
+            const img = await fetch(it.coverUrl, { headers: { 'User-Agent': 'YoruC-bio-card-sync (GitHub Actions)' } });
+            if (!img.ok) { console.log(`cover ${id}: ${img.status}`); continue; }
+            const data = `data:${img.headers.get('content-type') || 'image/jpeg'};base64,` + Buffer.from(await img.arrayBuffer()).toString('base64');
+            const c = await fetch(`${CARD}/cover?key=${encodeURIComponent(KEY)}&id=${id}`, { method: 'POST', body: data });
+            if (c.ok) sent++;
+          }
+          console.log(`Sent ${list.length} shows (newest: ${list[0] ? list[0].title : '-'}), ${sent} new covers.`);
+          EOF
+          node sync.mjs
+
+      # GitHub pauses scheduled jobs in repositories with no activity for 60 days.
+      # Once a day this tells GitHub the job is wanted, so it never stops by itself.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%H)" = "03" ] && [ "$(date -u +%M)" -lt 30 ]; then
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/anilist-bio-sync.yml/enable" && echo "kept alive" || true
+          fi
