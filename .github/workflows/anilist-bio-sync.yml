@@ -27,21 +27,24 @@ jobs:
           KEY: ${{ secrets.BIO_PUSH_KEY }}
           CARD: https://yoruc-bio.exosone1994.workers.dev
           ANILIST_USER: YoruC
+          ANILIST_ID: 7801352
           MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           cat > sync.mjs <<'EOF'
-          const { KEY, CARD, ANILIST_USER, MANUAL } = process.env;
+          const { KEY, CARD, ANILIST_USER, ANILIST_ID, MANUAL } = process.env;
           const fail = msg => { console.log(`::${MANUAL === 'true' ? 'error' : 'warning'}::${msg}`); process.exit(MANUAL === 'true' ? 1 : 0); };
           if (!KEY) fail('The repository secret BIO_PUSH_KEY is missing.');
           // anime Watching / Rewatching + manga Reading / Rereading (never Planning, Paused, Dropped, Completed)
-          const Q = `query($u:String){
+          // + the 50 newest list activities (AniList makes one only when you watch / read or change a status)
+          const Q = `query($u:String,$id:Int){
             anime:MediaListCollection(userName:$u,type:ANIME,status_in:[CURRENT,REPEATING],sort:UPDATED_TIME_DESC){lists{entries{...E}}}
-            manga:MediaListCollection(userName:$u,type:MANGA,status_in:[CURRENT,REPEATING],sort:UPDATED_TIME_DESC){lists{entries{...E}}}}
+            manga:MediaListCollection(userName:$u,type:MANGA,status_in:[CURRENT,REPEATING],sort:UPDATED_TIME_DESC){lists{entries{...E}}}
+            acts:Page(perPage:50){activities(userId:$id,type:MEDIA_LIST,sort:ID_DESC){...on ListActivity{createdAt media{id}}}}}
           fragment E on MediaList{status progress updatedAt media{id type siteUrl status episodes chapters title{english romaji}
             coverImage{large} nextAiringEpisode{episode airingAt}}}`;
           const r = await fetch('https://graphql.anilist.co', { method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'YoruC-bio-card-sync (GitHub Actions)' },
-            body: JSON.stringify({ query: Q, variables: { u: ANILIST_USER } }) });
+            body: JSON.stringify({ query: Q, variables: { u: ANILIST_USER, id: +ANILIST_ID } }) });
           if (!r.ok) fail(`AniList answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
           const j = await r.json();
           const seen = new Set(), list = [];
@@ -52,6 +55,16 @@ jobs:
             list.push({ id: m.id, type: m.type, title: m.title.english || m.title.romaji, coverUrl: m.coverImage.large, url: m.siteUrl,
               progress: e.progress || 0, episodes: m.episodes, chapters: m.chapters, listStatus: e.status, mediaStatus: m.status, updatedAt: e.updatedAt,
               next: m.nextAiringEpisode ? { episode: m.nextAiringEpisode.episode, at: m.nextAiringEpisode.airingAt } : null });
+          }
+          // updatedAt = when you last watched / read the show (its newest list activity), not AniList's own updatedAt,
+          // which also changes when you only edit a score or notes. Shows with no activity among the newest 50 were
+          // last watched before the oldest of them. No activities at all: AniList's times stay.
+          const acts = ((j.data.acts && j.data.acts.activities) || []).filter(a => a && a.media && a.createdAt);
+          if (acts.length) {
+            const at = {};
+            for (const a of acts) if (!(a.media.id in at)) at[a.media.id] = a.createdAt;
+            const oldest = Math.min(...acts.map(a => a.createdAt));
+            for (const it of list) it.updatedAt = at[it.id] != null ? at[it.id] : Math.min(it.updatedAt, oldest - 1);
           }
           list.sort((a, b) => b.updatedAt - a.updatedAt);
           const u = await fetch(`${CARD}/update?key=${encodeURIComponent(KEY)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ list }) });
