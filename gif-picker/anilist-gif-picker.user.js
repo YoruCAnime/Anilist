@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.3.0
+// @version      1.3.1
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs and SFW booru pictures (Safebooru, Konachan.net), or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -29,6 +29,8 @@
 //        then img(raw.githubusercontent.com link) is added like any other pick.
 // 1.3.0: Upload your own VIDEO too (MP4 / WebM, its own repo + folder; token empty = the GIF one) -> webm(link),
 //        which AniList plays for MP4 as well. Videos show in the grid / tray / big view as videos.
+// 1.3.1: Side by side really is side by side: one spoiler around the group, and pictures too wide to fit next to
+//        each other are sized to share the row (2 or 3 per row, percent of the comment width).
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -164,12 +166,26 @@
   // AniList turns ~~~ ~~~ into centre BEFORE it looks for ~! !~ and ends the centre at the first ~~~, so
   // "~~~~!img()!~~~~" lost a ~ of the spoiler: Centre + Spoiler needs a space between them.
   // A video is { url, video: true } and becomes webm(link) (AniList has no width for videos).
+  // Side by side (measured with AniList's own formatter, comments 300-700 px wide):
+  // - each ~! !~ becomes its own paragraph, so a group shares ONE spoiler, or every picture sat on its own line;
+  // - pictures too wide to sit next to each other (Original GIFs are ~500 px, a comment ~620) get a share of the
+  //   row instead: 2 per row (also for 4), else 3 per row, at 49 % / 32 % (46 % / 30 % inside a spoiler's padding).
   function aniCode(urls, o) {
-    const codes = [].concat(urls).map(u => {
-      const c = typeof u === 'object' && u.video ? 'webm(' + safeUrl(u.url) + ')' : sizeTag(o) + '(' + safeUrl(typeof u === 'object' ? u.url : u) + ')';
-      return o.spoiler ? '~!' + c + '!~' : c;
-    });
-    const all = codes.join(o.side === false ? '\n' : ' ');
+    const items = [].concat(urls).map(u => (typeof u === 'object' ? u : { url: u }));
+    const side = o.side !== false && items.length > 1;
+    const pics = items.filter(it => !it.video).length;
+    let tag = sizeTag(o);
+    if (side && pics > 1) {
+      const per = pics <= 3 ? pics : pics === 4 ? 2 : 3;
+      const fit = Math.floor(100 / per) - (o.spoiler ? 3 : 1);
+      const m = tag.match(/^img(\d+)(%?)$/);
+      const fits = m && (m[2] ? +m[1] <= fit : per * +m[1] + 6 * (per - 1) <= 560);
+      if (!fits) tag = 'img' + fit + '%';
+    }
+    const one = it => (it.video ? 'webm(' : tag + '(') + safeUrl(it.url) + ')';
+    let all;
+    if (side) { all = items.map(one).join(' '); if (o.spoiler) all = '~!' + all + '!~'; }
+    else all = items.map(it => (o.spoiler ? '~!' + one(it) + '!~' : one(it))).join('\n');
     return o.center ? (o.spoiler ? '~~~ ' + all + ' ~~~' : '~~~' + all + '~~~') : all;
   }
 
@@ -586,7 +602,7 @@
     const trayAdd = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => addPicked() });
     const tray = el('div', { class: 'gp-tray', hidden: true },
       trayThumbs,
-      box('side', 'Side by side'),
+      el('span', { title: 'Too wide to sit next to each other? They are sized to fit: 2 or 3 per row, on PC and phone' }, box('side', 'Side by side')),
       el('button', { class: 'gp-b', type: 'button', onclick: () => { st.picked = []; markPicked(); paintTray(); } }, 'Clear'),
       trayAdd);
     const status = el('div', { class: 'gp-status' });

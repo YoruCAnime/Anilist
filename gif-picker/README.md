@@ -61,7 +61,7 @@ Already had AniList open? Reload those tabs so the script starts there.
 | **Size** | Original, 150 / 220 / 250 / 300 / 400 / 500 / 600 / 800 / 1000 px, quarter / half / full width, or **Custom px** (type any width). |
 | **Spoiler** | Adds it as `~!img(...)!~`. |
 | **Centre** | Adds it as `~~~img(...)~~~`. |
-| **Pick several** | Taps number the pictures 1, 2, 3… instead of adding them. The bar at the bottom shows your picks (tap one there to unpick it); **Add N** puts them all in at once, **side by side** or one per line. Picks stay while you search for something else. On PC, Ctrl / Shift-click picks even with this off. |
+| **Pick several** | Taps number the pictures 1, 2, 3… instead of adding them. The bar at the bottom shows your picks (tap one there to unpick it); **Add N** puts them all in at once, **side by side** or one per line. Picks stay while you search for something else. On PC, Ctrl / Shift-click picks even with this off. Side by side, GIFs too wide to sit next to each other are sized to share the row (2 or 3 per row), so they line up on PC and phone; with Spoiler on they share one spoiler. |
 | **Keep open after adding** | Add more in a row. |
 | **⬆ (next to Search)** | Upload your own GIF or video (see below). |
 | **Empty search** | Shows your recently used picks. |
