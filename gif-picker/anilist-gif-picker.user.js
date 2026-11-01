@@ -2,8 +2,8 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.2.0
-// @description  A GIF button in AniList's comment toolbar: search Tenor GIFs and SFW booru pictures (Safebooru, Konachan.net), or upload your own GIF to your GitHub repo, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
+// @version      1.3.0
+// @description  A GIF button in AniList's comment toolbar: search Tenor GIFs and SFW booru pictures (Safebooru, Konachan.net), or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
@@ -27,6 +27,8 @@
 // 1.2.0: Upload your own: a GIF / picture from the PC or phone goes into YOUR public GitHub repo (contents API, a
 //        token that can write to that one repo, kept in Tampermonkey's storage and only ever sent to api.github.com),
 //        then img(raw.githubusercontent.com link) is added like any other pick.
+// 1.3.0: Upload your own VIDEO too (MP4 / WebM, its own repo + folder; token empty = the GIF one) -> webm(link),
+//        which AniList plays for MP4 as well. Videos show in the grid / tray / big view as videos.
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -74,13 +76,24 @@
   }
 
   // ---------- your own uploads: a file -> your public GitHub repo -> raw link ----------
-  const ghConf = () => Object.assign({ repo: '', branch: '', folder: 'gifs', token: '' }, store.get('github', {}) || {});
+  // two setups: 'gif' (GIFs / pictures) and 'video' (its own repo; an empty video token means "use the GIF one")
+  const GH_KEY = { gif: 'github', video: 'github_video' };
+  const ghSaved = kind => Object.assign({ repo: '', branch: '', folder: kind === 'video' ? '' : 'gifs', token: '' }, store.get(GH_KEY[kind], {}) || {});
+  function ghConf(kind = 'gif') {
+    const c = ghSaved(kind);
+    if (kind === 'video' && !c.token) { c.token = ghSaved('gif').token; c.shared = !!c.token; }
+    return c;
+  }
   const ghReady = c => /^[\w.-]+\/[\w.-]+$/.test(c.repo) && !!c.token;
   const ghHeaders = c => ({ Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' });
   const ghJson = t => { try { return JSON.parse(t); } catch (e) { return {}; } };
   const ghPath = c => String(c.folder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/[^\w\/.-]+/g, '-');
-  const UP_TYPES = { 'image/gif': 'gif', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+  const UP_TYPES = { 'image/gif': 'gif', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/x-m4v': 'm4v' };
   const UP_MAX = 25 * 1048576;
+  const PIC_EXT = /\.(gif|png|jpe?g|webp)$/i, VID_EXT = /\.(mp4|webm|m4v)$/i;
+  // AniList plays videos with webm( ), which takes mp4 too; browsers play mp4 (H.264) and webm
+  const isVideoFile = f => /^video\/(mp4|webm|x-m4v)$/.test(f.type || '') || (!/^image\//.test(f.type || '') && VID_EXT.test(f.name || ''));
+  const isPicFile = f => /^image\/(gif|png|jpeg|webp)$/.test(f.type || '') || (!/^video\//.test(f.type || '') && PIC_EXT.test(f.name || ''));
 
   // checks the repo + token; fills in the branch; returns '' when fine, else what is wrong in plain words
   async function ghCheck(c) {
@@ -91,13 +104,13 @@
     if (r.status === 401) return 'GitHub did not accept the token (wrong, expired or deleted)';
     if (r.status === 404 || r.status === 403) return 'Repo not found, or the token is not allowed to see it';
     if (r.status !== 200) return 'GitHub answered ' + r.status + (j.message ? ': ' + j.message : '');
-    if (j.private) return 'That repo is private: people reading your comment could not see the pictures. Make it public (repo Settings > Change visibility).';
+    if (j.private) return 'That repo is private: people reading your comment could not see what you upload. Make it public (repo Settings > Change visibility).';
     if (!c.branch) c.branch = j.default_branch || 'main';
     return '';
   }
 
   function fileName(file) {
-    const ext = UP_TYPES[file.type] || (String(file.name).match(/\.(gif|png|jpe?g|webp)$/i) || [, 'gif'])[1].toLowerCase().replace('jpeg', 'jpg');
+    const ext = UP_TYPES[file.type] || (String(file.name).match(/\.(gif|png|jpe?g|webp|mp4|webm|m4v)$/i) || [, 'gif'])[1].toLowerCase().replace('jpeg', 'jpg');
     const base = String(file.name || 'gif').replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gif';
     return base + '-' + Date.now().toString(36) + '.' + ext;
   }
@@ -150,9 +163,10 @@
   // several pictures: side by side (one line) or one per line; Centre wraps them all once.
   // AniList turns ~~~ ~~~ into centre BEFORE it looks for ~! !~ and ends the centre at the first ~~~, so
   // "~~~~!img()!~~~~" lost a ~ of the spoiler: Centre + Spoiler needs a space between them.
+  // A video is { url, video: true } and becomes webm(link) (AniList has no width for videos).
   function aniCode(urls, o) {
     const codes = [].concat(urls).map(u => {
-      const c = sizeTag(o) + '(' + safeUrl(u) + ')';
+      const c = typeof u === 'object' && u.video ? 'webm(' + safeUrl(u.url) + ')' : sizeTag(o) + '(' + safeUrl(typeof u === 'object' ? u.url : u) + ')';
       return o.spoiler ? '~!' + c + '!~' : c;
     });
     const all = codes.join(o.side === false ? '\n' : ' ');
@@ -351,7 +365,7 @@
 
   const SOURCES = [tenor, safebooru, konachan];
 
-  if (TEST) { TEST.api = { request, requestFull, ghCheck, ghUpload, fileName, parseTenor, tenorMoreTerms, resolveTags, tagCount, SOURCES, aniCode, sizeTag, safeUrl, wordsOf, objectAt }; return; }
+  if (TEST) { TEST.api = { request, requestFull, ghCheck, ghUpload, fileName, ghConf, isVideoFile, isPicFile, parseTenor, tenorMoreTerms, resolveTags, tagCount, SOURCES, aniCode, sizeTag, safeUrl, wordsOf, objectAt }; return; }
 
   // ---------- settings ----------
   const S = Object.assign({
@@ -428,7 +442,11 @@
   .gp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
   .gp-h { grid-column: 1 / -1; font-weight: 700; font-size: 12px; opacity: .8; margin: 2px 0; }
   .gp-tile { position: relative; aspect-ratio: 1; border-radius: 4px; overflow: hidden; background: rgb(var(--bg)); cursor: pointer; border: 0; padding: 0; }
-  .gp-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gp-tile img, .gp-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gp-tray .thumbs video { width: 34px; height: 34px; object-fit: cover; border-radius: 3px; flex: none; }
+  .gp-view .pic video { max-width: 100%; max-height: 100%; border-radius: 4px; background: #000; }
+  .gp-up .drop video { max-width: 100%; max-height: 260px; border-radius: 4px; background: #000; }
+  .gp-up .gp-kind { align-self: flex-start; }
   .gp-tile:hover img, .gp-tile:focus-visible img { filter: brightness(1.08); }
   .gp-tile:focus-visible { outline: 3px solid rgb(var(--bl)); }
   .gp-tile .tag { position: absolute; left: 4px; top: 4px; font-size: 10px; font-weight: 700; background: rgba(0,0,0,.6); color: #fff;
@@ -509,13 +527,16 @@
   }
 
   // a picture that does not load here would be a broken picture in the comment too
-  function loads(url) {
+  // (a video only needs its first bytes: the browser reading its size and length is enough)
+  function loads(url, video) {
     return new Promise(res => {
-      const im = new Image();
-      const t = setTimeout(() => { im.src = ''; res(false); }, 15000);
-      im.onload = () => { clearTimeout(t); res(im.naturalWidth > 0); };
-      im.onerror = () => { clearTimeout(t); res(false); };
-      im.src = url;
+      const m = video ? document.createElement('video') : new Image();
+      const done = ok => { clearTimeout(t); m.onload = m.onerror = m.onloadedmetadata = null; if (video) { m.removeAttribute('src'); m.load(); } res(ok); };
+      const t = setTimeout(() => done(false), video ? 25000 : 15000);
+      if (video) { m.muted = true; m.preload = 'metadata'; m.onloadedmetadata = () => done(m.videoWidth > 0 || m.duration > 0); }
+      else m.onload = () => done(m.naturalWidth > 0);
+      m.onerror = () => done(false);
+      m.src = url;
     });
   }
 
@@ -532,7 +553,7 @@
     q.value = S.lastQ || '';
     const go = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => search(q.value) }, 'Search');
     const x = el('button', { class: 'gp-b gp-x', type: 'button', title: 'Close (Esc)', 'aria-label': 'Close', onclick: closePicker }, '×');
-    const upBtn = el('button', { class: 'gp-b gp-x gp-upbtn', type: 'button', title: 'Upload your own GIF / picture', 'aria-label': 'Upload your own', onclick: () => uploadView() });
+    const upBtn = el('button', { class: 'gp-b gp-x gp-upbtn', type: 'button', title: 'Upload your own GIF / picture / video', 'aria-label': 'Upload your own', onclick: () => uploadView() });
     upBtn.innerHTML = UP_ICON;
     const segGif = el('button', { type: 'button' }, 'GIF');
     const segPic = el('button', { type: 'button' }, 'Picture');
@@ -621,18 +642,30 @@
       status.append(parts.join(SEP));
     }
 
+    // a video (your uploads) shows its first frame, plays muted while hovered
+    const media = it => {
+      if (!it.video) return el('img', { src: it.thumb, loading: 'lazy', alt: it.title || '', draggable: 'false' });
+      const m = el('video', { src: it.url + '#t=0.1', preload: 'metadata', playsinline: true, loop: true });
+      m.muted = true;
+      return m;
+    };
+
     function tile(it) {
-      const img = el('img', { src: it.thumb, loading: 'lazy', alt: it.title || '', draggable: 'false' });
+      const img = media(it);
       img.addEventListener('error', () => {
         if (it.still && img.src !== it.still) { img.src = it.still; return; }
         t.remove();
       });
+      if (it.video) {
+        img.addEventListener('mouseenter', () => img.play().catch(() => {}));
+        img.addEventListener('mouseleave', () => img.pause());
+      }
       const zoom = el('button', { class: 'zoom', type: 'button', title: 'See it big', 'aria-label': 'See it big', onclick: e => { e.stopPropagation(); view(it); } });
       zoom.innerHTML = ZOOM_ICON;
       const src = SOURCES.find(s => s.id === it.src);
       const mine = it.src === 'upload';
       const t = el('div', { class: 'gp-tile', tabindex: '0', title: (it.title ? it.title + '\n' : '') + (it.w ? it.w + '×' + it.h + ' · ' : '') + (src ? src.name : mine ? 'your upload' : 'recent') },
-        img, el('span', { class: 'tag' }, src ? src.short : mine ? 'UP' : '↺'), zoom);
+        img, el('span', { class: 'tag' }, src ? src.short : mine ? (it.video ? 'UP ▶' : 'UP') : '↺'), zoom);
       t.gpUrl = it.url;
       // Pick several on (or Ctrl / Shift / Cmd-click on PC): tap = pick / unpick; otherwise tap = add straight away
       const act = e => { if (S.multi || e.ctrlKey || e.shiftKey || e.metaKey) togglePick(it); else pick(it, t); };
@@ -662,7 +695,12 @@
       const n = st.picked.length;
       tray.hidden = !n;
       trayThumbs.textContent = '';
-      trayThumbs.append(...st.picked.map(p => el('img', { src: p.still || p.thumb, alt: '', title: 'Tap to unpick', onclick: () => togglePick(p) })));
+      trayThumbs.append(...st.picked.map(p => {
+        const m = p.video ? media(p) : el('img', { src: p.still || p.thumb, alt: '' });
+        m.title = 'Tap to unpick';
+        m.addEventListener('click', () => togglePick(p));
+        return m;
+      }));
       trayAdd.textContent = 'Add ' + n;
     }
 
@@ -671,18 +709,18 @@
       for (const it of items.slice().reverse()) recent = [Object.assign({}, it, { tags: undefined })].concat(recent.filter(r => r.url !== it.url));
       recent = recent.slice(0, 36);
       store.set('recent', recent);
-      const what = items.length > 1 ? items.length + ' added' : 'Added ' + (items[0].gif ? 'GIF' : 'picture');
+      const what = items.length > 1 ? items.length + ' added' : 'Added ' + (items[0].video ? 'video' : items[0].gif ? 'GIF' : 'picture');
       if (S.keepOpen) toast(what); else { closePicker(); toast(what + ' to your comment'); }
     }
 
     async function pick(it, t) {
       if (t && t.classList.contains('busy')) return;
       if (t) t.classList.add('busy');
-      const ok = await loads(it.url);
+      const ok = await loads(it.url, it.video);
       if (t) t.classList.remove('busy');
       if (!P || P.st !== st) return;
       if (!ok) { if (t) t.classList.add('bad'); toast('That one will not load from its site, pick another'); return; }
-      if (!insertText(st.ta, aniCode([it.url], S))) { toast('The comment box is gone, open the picker from the box again'); return; }
+      if (!insertText(st.ta, aniCode([it], S))) { toast('The comment box is gone, open the picker from the box again'); return; }
       added([it]);
     }
 
@@ -690,14 +728,14 @@
       const list = st.picked.slice();
       if (!list.length || trayAdd.disabled) return;
       trayAdd.disabled = true; trayAdd.textContent = 'Checking…';
-      const ok = await Promise.all(list.map(it => loads(it.url)));
+      const ok = await Promise.all(list.map(it => loads(it.url, it.video)));
       if (!P || P.st !== st) return;
       trayAdd.disabled = false;
       const good = list.filter((it, i) => ok[i]);
       const bad = list.length - good.length;
       for (const t of panel.querySelectorAll('.gp-tile')) if (list.some((it, i) => !ok[i] && it.url === t.gpUrl)) t.classList.add('bad');
       if (!good.length) { st.picked = []; markPicked(); paintTray(); toast('None of those load from their sites, pick others'); return; }
-      if (!insertText(st.ta, aniCode(good.map(it => it.url), S))) { paintTray(); toast('The comment box is gone, open the picker from the box again'); return; }
+      if (!insertText(st.ta, aniCode(good, S))) { paintTray(); toast('The comment box is gone, open the picker from the box again'); return; }
       st.picked = []; markPicked(); paintTray();
       if (bad) toast(bad + ' did not load from their site and were left out');
       if (bad && !S.keepOpen) { setTimeout(() => added(good), 1200); return; }
@@ -705,7 +743,8 @@
     }
 
     function view(it) {
-      const big = el('img', { src: it.url, alt: it.title || '' });
+      const big = it.video ? el('video', { src: it.url, controls: true, loop: true, playsinline: true, autoplay: true }) : el('img', { src: it.url, alt: it.title || '' });
+      if (it.video) big.muted = true;
       const src = SOURCES.find(s => s.id === it.src);
       const isPicked = () => st.picked.some(p => p.url === it.url);
       const pickBtn = el('button', { class: 'gp-b', type: 'button', onclick: () => { togglePick(it); pickBtn.textContent = isPicked() ? 'Unpick' : 'Pick'; } }, isPicked() ? 'Unpick' : 'Pick');
@@ -720,53 +759,70 @@
       panel.appendChild(v);
     }
 
-    // Upload your own: the GitHub setup the first time (or via Settings), then choose / drop / paste a file
-    function uploadView(file, setup) {
+    // Upload your own: GIF / picture or Video (each its own repo). The GitHub setup the first time (or via Change),
+    // then choose / drop / paste a file
+    function uploadView(file, setup, kind) {
       for (const old of panel.querySelectorAll('.gp-view')) old.remove();
-      const c = ghConf();
+      kind = kind || (file ? (isVideoFile(file) ? 'video' : 'gif') : (S.upKind === 'video' ? 'video' : 'gif'));
+      if (S.upKind !== kind) { S.upKind = kind; saveSettings(); }
+      const vid = kind === 'video';
+      const c = ghConf(kind);
       const v = el('div', { class: 'gp-view gp-up' });
       const body = el('div', { class: 'box' });
       v.appendChild(body);
       const back = el('button', { class: 'gp-b', type: 'button', onclick: () => v.remove() }, 'Back');
       const msg = el('div', { class: 'msg' });
-      const say = (t, kind) => { msg.textContent = t; msg.className = 'msg' + (kind ? ' ' + kind : ''); };
+      const say = (t, k) => { msg.textContent = t; msg.className = 'msg' + (k ? ' ' + k : ''); };
+      const kGif = el('button', { type: 'button', class: vid ? '' : 'on', onclick: () => { if (vid) uploadView(null, false, 'gif'); } }, 'GIF / picture');
+      const kVid = el('button', { type: 'button', class: vid ? 'on' : '', onclick: () => { if (!vid) uploadView(null, false, 'video'); } }, 'Video');
+      body.append(el('div', { class: 'gp-seg gp-kind' }, kGif, kVid));
 
       if (setup || !ghReady(c)) {
+        const saved = ghSaved(kind);
+        const gifTok = ghSaved('gif').token;
         const field = (label, attrs, value) => { const i = el('input', Object.assign({ autocomplete: 'off', spellcheck: 'false' }, attrs)); i.value = value || ''; i.addEventListener('keydown', e => e.stopPropagation()); return [el('label', { class: 'f' }, label, i), i]; };
-        const [fRepo, iRepo] = field('Your public GitHub repo (name/repo)', { placeholder: 'YourName/gifs' }, c.repo);
-        const [fBranch, iBranch] = field('Branch (empty = the repo\'s main one)', { placeholder: 'main' }, c.branch);
-        const [fFolder, iFolder] = field('Folder in the repo (empty = top)', { placeholder: 'gifs' }, c.folder);
-        const [fTok, iTok] = field('Token', { type: 'password', placeholder: c.token ? 'saved (paste a new one to replace it)' : 'github_pat_…' }, '');
+        const [fRepo, iRepo] = field(vid ? 'Your public GitHub repo for videos (name/repo)' : 'Your public GitHub repo (name/repo)', { placeholder: vid ? 'YourName/videos' : 'YourName/gifs' }, saved.repo);
+        const [fBranch, iBranch] = field('Branch (empty = the repo\'s main one)', { placeholder: 'main' }, saved.branch);
+        const [fFolder, iFolder] = field('Folder in the repo (empty = top)', { placeholder: vid ? '' : 'gifs' }, saved.folder);
+        const [fTok, iTok] = field(vid && gifTok ? 'Token (empty = use your GIF token)' : 'Token',
+          { type: 'password', placeholder: saved.token ? 'saved (paste a new one to replace it)' : vid && gifTok ? 'using your GIF token' : 'github_pat_…' }, '');
         const save = el('button', { class: 'gp-b gp-go', type: 'button' }, 'Save and check');
         save.addEventListener('click', async () => {
           const n = { repo: iRepo.value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '').replace(/\.git$/, ''), branch: iBranch.value.trim(),
-            folder: iFolder.value.trim(), token: iTok.value.trim() || c.token };
+            folder: iFolder.value.trim(), token: iTok.value.trim() || saved.token };
+          const test = Object.assign({}, n, { token: n.token || (vid ? gifTok : '') });
           save.disabled = true; say('Checking with GitHub…');
           let bad;
-          try { bad = await ghCheck(n); } catch (e) { bad = 'GitHub did not answer (' + e.message + ')'; }
+          try { bad = await ghCheck(test); } catch (e) { bad = 'GitHub did not answer (' + e.message + ')'; }
           save.disabled = false;
           if (bad) { say(bad, 'bad'); return; }
-          store.set('github', n);
-          say('Saved. Uploads go to ' + n.repo + (ghPath(n) ? '/' + ghPath(n) : '') + ' (' + n.branch + ')', 'good');
-          setTimeout(() => { if (v.isConnected) uploadView(file); }, 900);
+          n.branch = test.branch;
+          store.set(GH_KEY[kind], n);
+          say('Saved. ' + (vid ? 'Videos' : 'Uploads') + ' go to ' + n.repo + (ghPath(n) ? '/' + ghPath(n) : '') + ' (' + n.branch + ')', 'good');
+          setTimeout(() => { if (v.isConnected) uploadView(file, false, kind); }, 900);
         });
+        const what = vid ? 'videos' : 'GIFs';
         body.append(
-          el('h3', {}, 'Upload your own: set up once'),
-          el('p', {}, 'Your GIFs are stored in a GitHub repo of yours, and the comment links to them there. The repo must be public so everyone can see them.'),
-          el('p', {}, '1. Make a new public repo on GitHub, e.g. "gifs" (', el('a', { href: 'https://github.com/new', target: '_blank', rel: 'noopener' }, 'github.com/new'), ').'),
-          el('p', {}, '2. Make a token (', el('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'fine-grained token'),
-            '): Repository access > Only select repositories > that repo; Permissions > Contents > Read and write. Pick an expiry you like, then Generate and copy it.'),
+          el('h3', {}, vid ? 'Upload your own videos: set up once' : 'Upload your own: set up once'),
+          el('p', {}, 'Your ' + what + ' are stored in a GitHub repo of yours, and the comment links to them there. The repo must be public so everyone can see them.' +
+            (vid ? ' It can be a different repo from your GIF one.' : '')),
+          el('p', {}, '1. Make a new public repo on GitHub, e.g. "' + (vid ? 'videos' : 'gifs') + '" (', el('a', { href: 'https://github.com/new', target: '_blank', rel: 'noopener' }, 'github.com/new'), '), or use one you have.'),
+          vid && gifTok
+            ? el('p', {}, '2. Token: leave it empty to use your GIF token, but then add this repo to that token on GitHub (', el('a', { href: 'https://github.com/settings/personal-access-tokens', target: '_blank', rel: 'noopener' }, 'your tokens'),
+              ' > the token > Edit > Repository access > add it; Contents stays Read and write). Or paste a separate token for it.')
+            : el('p', {}, '2. Make a token (', el('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'fine-grained token'),
+              '): Repository access > Only select repositories > that repo; Permissions > Contents > Read and write. Pick an expiry you like, then Generate and copy it.'),
           el('p', {}, '3. Fill in below. The token is kept in Tampermonkey on this device and only ever sent to GitHub.'),
           fRepo, fBranch, fFolder, fTok,
-          el('div', { class: 'row' }, save, back, ghReady(c) ? el('button', { class: 'gp-b', type: 'button', onclick: () => { store.set('github', Object.assign(c, { token: '' })); say('Token removed from this device', 'good'); } }, 'Forget token') : null),
+          el('div', { class: 'row' }, save, back, saved.token ? el('button', { class: 'gp-b', type: 'button', onclick: () => { store.set(GH_KEY[kind], Object.assign(saved, { token: '' })); say('Token removed from this device', 'good'); } }, 'Forget token') : null),
           msg);
         panel.appendChild(v);
-        if (!matchMedia('(hover: none)').matches) (c.repo ? iTok : iRepo).focus();
+        if (!matchMedia('(hover: none)').matches) (saved.repo ? iTok : iRepo).focus();
         return;
       }
 
-      const input = el('input', { type: 'file', accept: 'image/gif,image/png,image/jpeg,image/webp', hidden: true });
-      const choose = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => input.click() }, 'Choose a GIF / picture');
+      const input = el('input', { type: 'file', accept: vid ? 'video/mp4,video/webm,video/x-m4v,.mp4,.webm,.m4v' : 'image/gif,image/png,image/jpeg,image/webp', hidden: true });
+      const choose = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => input.click() }, vid ? 'Choose a video' : 'Choose a GIF / picture');
       const drop = el('div', { class: 'drop' });
       const go = el('button', { class: 'gp-b gp-go', type: 'button', hidden: true }, 'Upload and add');
       let cur = null, curUrl = '';
@@ -775,10 +831,15 @@
         cur = null; curUrl = ''; go.hidden = true;
         drop.textContent = '';
         if (!f) { drop.append(choose, el('p', {}, matchMedia('(hover: none)').matches ? 'From your gallery or files' : 'or drag one here, or paste it (Ctrl+V)')); return; }
-        if (!UP_TYPES[f.type] && !/\.(gif|png|jpe?g|webp)$/i.test(f.name || '')) { say('That is not a GIF / PNG / JPG / WebP picture', 'bad'); setFile(null); return; }
-        if (f.size > UP_MAX) { say('That file is ' + (f.size / 1048576).toFixed(1) + ' MB; the limit is 25 MB (make it smaller first)', 'bad'); setFile(null); return; }
+        if (vid ? !isVideoFile(f) : !isPicFile(f)) {
+          if (vid ? isPicFile(f) : isVideoFile(f)) { uploadView(f, false, vid ? 'gif' : 'video'); return; } // the other kind: switch over
+          say(vid ? 'That is not an MP4 / WebM video' : 'That is not a GIF / PNG / JPG / WebP picture', 'bad'); setFile(null); return;
+        }
+        if (f.size > UP_MAX) { say('That file is ' + mb(f.size) + '; the limit is 25 MB (make it smaller first)', 'bad'); setFile(null); return; }
         cur = f; curUrl = URL.createObjectURL(f);
-        drop.append(el('img', { src: curUrl, alt: '' }), el('p', {}, (f.name || 'pasted picture') + ' · ' + mb(f.size)),
+        const prev = vid ? el('video', { src: curUrl, controls: true, loop: true, playsinline: true }) : el('img', { src: curUrl, alt: '' });
+        if (vid) { prev.muted = true; prev.play().catch(() => {}); }
+        drop.append(prev, el('p', {}, (f.name || 'pasted file') + ' · ' + mb(f.size)),
           el('button', { class: 'gp-b', type: 'button', onclick: () => input.click() }, 'Choose another'));
         go.hidden = false;
         say('');
@@ -791,40 +852,44 @@
         if (!cur) return;
         const f = cur;
         go.disabled = true; choose.disabled = true;
-        say('Uploading ' + mb(f.size) + ' to GitHub…');
+        say('Uploading ' + mb(f.size) + ' to GitHub…' + (f.size > 8 * 1048576 ? ' (big files take a little while)' : ''));
+        const conf = ghConf(kind);
         try {
-          const url = await ghUpload(ghConf(), fileName(f), await readB64(f));
+          const url = await ghUpload(conf, fileName(f), await readB64(f));
           if (!v.isConnected || !P || P.st !== st) return;
-          const it = { key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), page: '' };
+          const it = { key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), video: vid, page: '' };
           // GitHub's raw links answer within seconds of the upload; wait for it so the comment never gets a dead link
           let ok = false;
-          for (let i = 0; i < 6 && !ok; i++) { ok = await loads(url + (i ? '?t=' + i : '')); if (!ok) await new Promise(r => setTimeout(r, 2000)); }
+          for (let i = 0; i < 6 && !ok; i++) { ok = await loads(url + (i ? '?t=' + i : ''), vid); if (!ok) await new Promise(r => setTimeout(r, 2000)); }
           if (!P || P.st !== st) return;
           v.remove();
           if (S.multi) { st.picked.push(it); markPicked(); paintTray(); toast('Uploaded and picked'); return; }
-          if (!insertText(st.ta, aniCode([url], S))) { toast('Uploaded, but the comment box is gone'); return; }
+          if (!insertText(st.ta, aniCode([it], S))) { toast('Uploaded, but the comment box is gone'); return; }
           if (!ok) toast('Uploaded; GitHub may take a minute before it shows');
           added([it]);
         } catch (e) {
           go.disabled = false; choose.disabled = false;
-          say(e.message || 'Upload failed', 'bad');
+          let m = e.message || 'Upload failed';
+          if (conf.shared && /not allowed to write/.test(m)) m += '. It is your GIF token: add ' + conf.repo + ' to it on GitHub, or paste a separate token (Change)';
+          say(m, 'bad');
         }
       });
       body.append(
-        el('h3', {}, 'Upload your own'),
+        el('h3', {}, vid ? 'Upload your own video' : 'Upload your own'),
         drop, input,
         el('div', { class: 'row' }, go, back),
         msg,
+        vid ? el('p', {}, 'Added as webm(link): AniList plays MP4 and WebM with it (the Size option is for pictures only). Up to 25 MB.') : null,
         el('p', {}, 'Goes to ', el('b', {}, c.repo + (ghPath(c) ? '/' + ghPath(c) : '')), ' on GitHub (public). ',
-          el('a', { href: '#', onclick: e => { e.preventDefault(); uploadView(null, true); } }, 'Change'), ' · ',
+          el('a', { href: '#', onclick: e => { e.preventDefault(); uploadView(null, true, kind); } }, 'Change'), ' · ',
           el('a', { href: 'https://github.com/' + c.repo + (ghPath(c) ? '/tree/' + (c.branch || 'main') + '/' + ghPath(c) : ''), target: '_blank', rel: 'noopener' }, 'Open the repo')));
       panel.appendChild(v);
       setFile(file || null);
     }
 
-    // PC: paste or drop a picture anywhere on the picker = upload it
+    // PC: paste or drop a picture / video anywhere on the picker = upload it
     panel.addEventListener('paste', e => {
-      const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(f => /^image\//.test(f.type));
+      const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(f => isPicFile(f) || isVideoFile(f));
       if (f) { e.preventDefault(); uploadView(f); }
     });
     panel.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });

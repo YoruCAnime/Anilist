@@ -10,7 +10,7 @@ toolbar instead. Search, see the results as previews, tap one, and `img(link)` i
 - **Picture** search: Safebooru + [Konachan.net](https://konachan.net) anime art (safe ratings only)
 - **Pick several** at once and add them in one go, side by side or one per line
 - **Any size**: original, 150 to 1000 px, quarter / half / full width, or your own number
-- **Upload your own** GIFs: they go into your own public GitHub repo and the comment links to them there
+- **Upload your own** GIFs and videos: they go into your own public GitHub repos and the comment links to them there
 
 > One file for both **PC** (Chrome, Brave, Edge, Firefox + Tampermonkey) and **phones**
 > (Firefox for Android + Tampermonkey). On a phone the picker opens full screen with big buttons.
@@ -63,13 +63,13 @@ Already had AniList open? Reload those tabs so the script starts there.
 | **Centre** | Adds it as `~~~img(...)~~~`. |
 | **Pick several** | Taps number the pictures 1, 2, 3… instead of adding them. The bar at the bottom shows your picks (tap one there to unpick it); **Add N** puts them all in at once, **side by side** or one per line. Picks stay while you search for something else. On PC, Ctrl / Shift-click picks even with this off. |
 | **Keep open after adding** | Add more in a row. |
-| **⬆ (next to Search)** | Upload your own GIF (see below). |
+| **⬆ (next to Search)** | Upload your own GIF or video (see below). |
 | **Empty search** | Shows your recently used picks. |
 | **Paste a picture link** | Adds that link as it is. |
 
 Esc or **×** closes the picker. Your choices are remembered.
 
-### 3. Upload your own GIFs (optional)
+### 3. Upload your own GIFs and videos (optional)
 
 Your GIF is stored in a **public GitHub repo of your own**, and the comment links to it there
 (`raw.githubusercontent.com`). Set it up once; the picker walks you through it:
@@ -86,9 +86,19 @@ After that: **⬆** → **Choose a GIF / picture** (on a phone: from your galler
 onto the picker or paste it (Ctrl+V). **Upload and add** uploads it and adds `img(link)` at your chosen size.
 GIF, PNG, JPG or WebP, up to 25 MB.
 
+**Videos:** the upload screen has a **GIF / picture | Video** switch. Video has its own setup, so videos can go to a
+different repo (for example `YourName/videos`; the folder defaults to the top of the repo):
+
+- Leave the video **Token** empty to use your GIF token. Then add the videos repo to that token on GitHub
+  ([your tokens](https://github.com/settings/personal-access-tokens) → the token → **Edit** → Repository access →
+  add the repo; Contents stays **Read and write**) → **Update**. Or paste a separate token for videos.
+- **Choose a video** → **Upload and add** adds it as `webm(link)`, AniList's video code, which plays **MP4** too.
+  MP4 (H.264) or WebM, up to 25 MB. Size doesn't apply to videos.
+- Picked a video on the GIF screen (or a GIF on the Video screen)? It switches over by itself.
+
 > **About the token:** it stays in Tampermonkey on your device and is only ever sent to `api.github.com`.
-> It can only write to the one repo you chose. **Change** on the upload screen edits the setup, **Forget token**
-> removes it. A private repo is refused, because people reading your comment could not see the GIF.
+> It can only write to the repos you chose. **Change** on the upload screen edits the setup, **Forget token**
+> removes it. A private repo is refused, because people reading your comment could not see what you uploaded.
 
 ---
 

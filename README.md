@@ -13,4 +13,4 @@ chat view that checks for new messages by itself.
 
 The GIF & Picture Picker adds a GIF button to AniList's comment toolbar: search Tenor GIFs and SFW anime art
 (Safebooru, Konachan), see previews, tap one (or pick several) and `img(link)` is in your comment, at any size.
-It can also upload your own GIFs to your GitHub repo.
+It can also upload your own GIFs and videos to your GitHub repos.
