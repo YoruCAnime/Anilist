@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.0
+// @version      1.5.1
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -45,6 +45,8 @@
 // 1.5.0: Your uploads on the upload screen: everything already in your upload folder (read from the repo, so uploads
 //        from other devices show too), newest first, a name filter; tap = add it again, no new upload. Choosing a file
 //        that is already in the repo (same bytes = same git blob sha) reuses that link instead of uploading a copy.
+// 1.5.1: looks for a new version once an hour (was 6 h) and when the picker opens after that; Tampermonkey menu
+//        "Check for updates now"; version.json + the Update link read refs/heads/main (plain /main/ lags ~5 min).
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -671,7 +673,8 @@
   // ---------- update notice: a bar in the picker + a dot on the GIF button; nothing installs by itself ----------
   // version.json in the repo says the newest version; Update opens the script's raw link, which Tampermonkey turns
   // into its own Update page (one more click). Later = quiet until the next version.
-  const RAW = 'https://raw.githubusercontent.com/YoruCAnime/Anilist/main/gif-picker/';
+  // refs/heads/main = the newest commit; plain /main/ can hand out a copy up to 5 minutes old (1.4.0 after a release)
+  const RAW = 'https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/gif-picker/';
   const MY_VERSION = typeof GM_info !== 'undefined' && GM_info && GM_info.script ? String(GM_info.script.version || '') : '';
   const newer = (a, b) => {
     const x = String(a).split('.').map(n => +n || 0), y = String(b).split('.').map(n => +n || 0);
@@ -686,16 +689,25 @@
     const u = pendingUpdate();
     for (const b of document.querySelectorAll('.gp-btn')) { b.classList.toggle('gp-new', !!u); b.title = u ? 'GIF / picture search (version ' + u.version + ' is out)' : 'GIF / picture search'; }
   }
-  async function checkUpdate() {
-    if (!MY_VERSION) return;
+  // one tiny file at most once an hour (shared by all tabs), in the background: the picker never waits for it.
+  // force = the menu's "Check for updates now". Returns the pending update, null, or false (GitHub not reached).
+  async function checkUpdate(force) {
+    if (!MY_VERSION) return null;
     const u = store.get('update', {}) || {};
-    if (!(u.at && Date.now() - u.at < 6 * 3600e3)) { // a few times a day at most
+    if (force || !(u.at && Date.now() - u.at < 3600e3)) {
       try {
         const j = JSON.parse(await request(RAW + 'version.json'));
         store.set('update', { at: Date.now(), version: String(j.version || ''), notes: String(j.notes || '').slice(0, 300) });
-      } catch (e) { store.set('update', Object.assign(u, { at: Date.now() })); }
+      } catch (e) { store.set('update', Object.assign(u, { at: Date.now() })); if (force) return false; }
     }
     markUpdate();
+    return pendingUpdate();
+  }
+  function showUpdateBar() { // into the open picker, once
+    const top = P && P.ov.isConnected && P.ov.querySelector('.gp-top');
+    if (!top || top.querySelector('.gp-upd')) return;
+    const bar = updateBar();
+    if (bar) top.prepend(bar);
   }
   function updateBar() {
     const u = pendingUpdate();
@@ -1334,6 +1346,7 @@
     const oldOverflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = 'hidden';
     P = { st, ov, io, onKey, oldOverflow };
+    if (!upd) checkUpdate().then(showUpdateBar, () => {}); // over an hour since the last look: ask now (the bar comes in when it answers)
     paintTop();
     if (q.value) search(q.value); else { paintStatus(); showRecent(); }
     // the phone keyboard would cover half the results, so only focus the box straight away on PC
@@ -1393,7 +1406,7 @@
   }).observe(document.body, { childList: true, subtree: true });
   addButtons();
   checkUpdate();
-  setInterval(checkUpdate, 3 * 3600e3); // tabs left open for days hear about it too
+  setInterval(checkUpdate, 20 * 60e3); // tabs left open hear about it too (it still asks GitHub at most once an hour)
 
   // Alt+G in a comment box opens the picker too (PC)
   document.addEventListener('keydown', e => {
@@ -1408,6 +1421,15 @@
       const ta = lastTa && lastTa.isConnected ? lastTa : document.querySelector('textarea');
       if (!ta) { toast('Click into a comment box first'); return; }
       openPicker(ta);
+    });
+    GM_registerMenuCommand('Check for updates now', async () => {
+      if (!MY_VERSION) { toast('Tampermonkey did not say which version this is'); return; }
+      toast('Checking for updates…');
+      store.set('skipVersion', ''); // asked by hand: show it even after Later
+      const u = await checkUpdate(true);
+      if (u === false) toast('Could not reach GitHub, try again in a bit');
+      else if (u) { showUpdateBar(); toast('Version ' + u.version + ' is out: press Update in the picker (GIF button)', 7000); }
+      else toast('You have the newest version (' + MY_VERSION + ')');
     });
   }
 })();

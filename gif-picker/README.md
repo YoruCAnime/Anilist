@@ -142,6 +142,9 @@ When a new version is out, a small dot shows on the **GIF** button and the picke
 Tampermonkey shows its own update page: press **Update** there, then reload your AniList tabs. Nothing updates by
 itself. **Later** hides the notice until the next version.
 
+The picker looks for a new version about once an hour, in the background (one tiny file, so nothing slows down).
+To look right away: Tampermonkey icon → **AniList GIF & Picture Picker** → **Check for updates now**.
+
 ## Troubleshooting
 
 - **No GIF button:** click into the comment box first (AniList only shows its toolbar then). Check the script
