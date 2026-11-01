@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.3.1
+// @version      1.3.2
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs and SFW booru pictures (Safebooru, Konachan.net), or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -31,6 +31,8 @@
 //        which AniList plays for MP4 as well. Videos show in the grid / tray / big view as videos.
 // 1.3.1: Side by side really is side by side: one spoiler around the group, and pictures too wide to fit next to
 //        each other are sized to share the row (2 or 3 per row, percent of the comment width).
+// 1.3.2: Layout switch next to Pick several (shown only while it is ticked): Side by side | Under each other
+//        (was a small tick box in the bottom bar).
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -423,6 +425,9 @@
   .gp-chip .n { font-weight: 400; opacity: .8; }
   .gp-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 12px; }
   .gp-opts label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .gp-lay { display: inline-flex; align-items: center; gap: 6px; }
+  .gp-lay[hidden] { display: none; }
+  .gp-lay .gp-seg button { height: 28px; padding: 0 10px; font-size: 12px; }
   .gp-opts select { background: rgb(var(--bg)); color: rgb(var(--tx)); border: 0; border-radius: 4px; height: 28px; padding: 0 6px; font: inherit; }
   .gp-opts .gp-px { width: 70px; background: rgb(var(--bg)); color: rgb(var(--tx)); border: 0; border-radius: 4px; height: 28px; padding: 0 6px; font: inherit; }
   .gp-tile.picked::before { content: ''; position: absolute; inset: 0; border: 3px solid rgb(var(--bl)); border-radius: 4px; z-index: 1; pointer-events: none; }
@@ -597,12 +602,23 @@
       c.addEventListener('change', () => { S[k] = c.checked; saveSettings(); if (after) after(); });
       return el('label', {}, c, label);
     };
-    const multiBox = box('multi', 'Pick several', () => paintTray());
+    // Pick several -> Layout: Side by side (one row, too-wide ones sized to fit 2 or 3 per row) or Under each other
+    const laySide = el('button', { type: 'button', title: 'In a row; too-wide ones are sized to fit 2 or 3 per row' }, 'Side by side');
+    const layDown = el('button', { type: 'button', title: 'Each on its own line, at the size you picked' }, 'Under each other');
+    const layout = el('span', { class: 'gp-lay' }, 'Layout ', el('span', { class: 'gp-seg' }, laySide, layDown));
+    const paintLayout = () => {
+      layout.hidden = !S.multi;
+      laySide.classList.toggle('on', S.side !== false);
+      layDown.classList.toggle('on', S.side === false);
+    };
+    laySide.addEventListener('click', () => { S.side = true; saveSettings(); paintLayout(); });
+    layDown.addEventListener('click', () => { S.side = false; saveSettings(); paintLayout(); });
+    const multiBox = box('multi', 'Pick several', () => { paintTray(); paintLayout(); });
+    paintLayout();
     const trayThumbs = el('div', { class: 'thumbs' });
     const trayAdd = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => addPicked() });
     const tray = el('div', { class: 'gp-tray', hidden: true },
       trayThumbs,
-      el('span', { title: 'Too wide to sit next to each other? They are sized to fit: 2 or 3 per row, on PC and phone' }, box('side', 'Side by side')),
       el('button', { class: 'gp-b', type: 'button', onclick: () => { st.picked = []; markPicked(); paintTray(); } }, 'Clear'),
       trayAdd);
     const status = el('div', { class: 'gp-status' });
@@ -613,7 +629,7 @@
       el('div', { class: 'gp-top' },
         el('div', { class: 'gp-row' }, q, go, upBtn, x),
         el('div', { class: 'gp-row' }, seg, ...SOURCES.map(s => chips[s.id])),
-        el('div', { class: 'gp-opts' }, el('label', {}, 'Size ', size, px), box('spoiler', 'Spoiler'), box('center', 'Centre'), multiBox, box('keepOpen', 'Keep open after adding')),
+        el('div', { class: 'gp-opts' }, el('label', {}, 'Size ', size, px), box('spoiler', 'Spoiler'), box('center', 'Centre'), multiBox, layout, box('keepOpen', 'Keep open after adding')),
         status),
       wrap, tray);
     const ov = el('div', { class: 'gp-ov', onclick: e => { if (e.target === ov) closePicker(); } }, panel);
