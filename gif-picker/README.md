@@ -8,9 +8,12 @@ toolbar instead. Search, see the results as previews, tap one, and `img(link)` i
 
 - **GIF** search: [Tenor](https://tenor.com) GIFs + [Safebooru](https://safebooru.org) animated GIFs
 - **Picture** search: Safebooru + [Konachan.net](https://konachan.net) anime art (safe ratings only)
+- **YouTube** search (no login): watch a video right in the picker first, then add it as `youtube(link)`
 - **Pick several** at once and add them in one go, side by side or one per line
 - **Any size**: original, 150 to 1000 px, quarter / half / full width, or your own number
-- **Upload your own** GIFs and videos: they go into your own public GitHub repos and the comment links to them there
+- **Upload your own** GIFs, pictures and videos, one or several at a time: they go into your own public GitHub repos
+  and the comment links to them there
+- **Update notice**: when a new version is out, the picker tells you, and one click opens Tampermonkey's update page
 
 > One file for both **PC** (Chrome, Brave, Edge, Firefox + Tampermonkey) and **phones**
 > (Firefox for Android + Tampermonkey). On a phone the picker opens full screen with big buttons.
@@ -54,7 +57,7 @@ Already had AniList open? Reload those tabs so the script starts there.
 
 | In the picker | What it does |
 |---|---|
-| **GIF / Picture** | Switch between moving GIFs and still pictures. |
+| **GIF / Picture / YouTube** | Switch between moving GIFs, still pictures and YouTube videos. In **YouTube** mode, tapping a video plays it right in the picker first; **Add to comment** then adds `youtube(link)` (AniList shows the player in your comment). Pasting a YouTube link into the search box works too. |
 | **Tenor · Safebooru · Konachan** | Tap to leave a site out. The number = how many it found. |
 | **Scroll down** | Loads more. |
 | **Magnifier** on a preview | Shows it big first, with a link to where it came from. |
@@ -83,9 +86,16 @@ Your GIF is stored in a **public GitHub repo of your own**, and the comment link
 3. Press **⬆** in the picker, fill in the repo (`YourName/gifs`), branch (empty = main), folder (default `gifs`)
    and the token, then **Save and check**.
 
-After that: **⬆** → **Choose a GIF / picture** (on a phone: from your gallery). On PC you can also drag a file
-onto the picker or paste it (Ctrl+V). **Upload and add** uploads it and adds `img(link)` at your chosen size.
-GIF, PNG, JPG or WebP, up to 25 MB.
+After that: **⬆** → **Choose GIFs / pictures** (on a phone: from your gallery). On PC you can also drag files
+onto the picker or paste them (Ctrl+V). **Upload and add** uploads them and adds `img(link)` at your chosen size.
+GIF, PNG, JPG or WebP, up to 25 MB each.
+
+**Several at once:** choose up to 20 files (**Add more** adds others, **×** on a preview leaves it out). A **Layout**
+switch appears: **Side by side** (in a row, sized to fit) or **Under each other**. **Upload N and add** uploads them one
+after another and adds them all to your comment in one go.
+
+Uploads always go straight into your comment, even if you close the picker while they upload. If the comment box
+is gone by then, the code is copied so you can paste it.
 
 **Videos:** the upload screen has a **GIF / picture | Video** switch. Video has its own setup, so videos can go to a
 different repo (for example `YourName/videos`; the folder defaults to the top of the repo):
@@ -117,6 +127,13 @@ different repo (for example `YourName/videos`; the folder defaults to the top of
 - Nothing is sent to AniList except the text you choose to add. Searches go straight from your browser to
   Tenor / Safebooru / Konachan. Searching needs no accounts, keys or logins (only uploading needs your GitHub token).
 - In Tampermonkey the script is listed as **AniList GIF & Picture Picker**.
+
+## Updates
+
+When a new version is out, a small dot shows on the **GIF** button and the picker shows a bar at the top:
+**New version …** with what's new, a glowing **Update** button and **Later**. **Update** opens the script's link and
+Tampermonkey shows its own update page: press **Update** there, then reload your AniList tabs. Nothing updates by
+itself. **Later** hides the notice until the next version.
 
 ## Troubleshooting
 
