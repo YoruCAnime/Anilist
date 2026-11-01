@@ -12,7 +12,8 @@ toolbar instead. Search, see the results as previews, tap one, and `img(link)` i
 - **Pick several** at once and add them in one go, side by side or one per line
 - **Any size**: original, 150 to 1000 px, quarter / half / full width, or your own number
 - **Upload your own** GIFs, pictures and videos, one or several at a time: they go into your own public GitHub repos
-  and the comment links to them there
+  and the comment links to them there. **Your uploads** lists them all (from any device) to use again without
+  uploading twice
 - **Update notice**: when a new version is out, the picker tells you, and one click opens Tampermonkey's update page
 
 > One file for both **PC** (Chrome, Brave, Edge, Firefox + Tampermonkey) and **phones**
@@ -96,6 +97,12 @@ after another and adds them all to your comment in one go.
 
 Uploads always go straight into your comment, even if you close the picker while they upload. If the comment box
 is gone by then, the code is copied so you can paste it.
+
+**Use an upload again (no new upload):** under the upload button, **Your uploads** shows everything already in your
+repo folder, newest first, including what you uploaded from your phone or another PC. Tap one to add it to your
+comment again. With **Pick several** on, tap several and press **Add N picked**. With lots of uploads, a **Find by name**
+box appears. If you choose a file that is already in your repo, the picker spots it and reuses that link instead of
+uploading a second copy. (Videos have their own **Your videos** list on the Video screen.)
 
 **Videos:** the upload screen has a **GIF / picture | Video** switch. Video has its own setup, so videos can go to a
 different repo (for example `YourName/videos`; the folder defaults to the top of the repo):

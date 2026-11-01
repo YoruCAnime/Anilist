@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.4.0
+// @version      1.5.0
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -42,6 +42,9 @@
 //        dropped the link without a word; no comment box left -> the code is copied (GM_setClipboard).
 //        Update notice: when version.json in the repo names a newer version, a dot on the GIF button and a bar in the
 //        picker (glowing Update -> the raw script link -> Tampermonkey's own update page; Later = quiet till the next one).
+// 1.5.0: Your uploads on the upload screen: everything already in your upload folder (read from the repo, so uploads
+//        from other devices show too), newest first, a name filter; tap = add it again, no new upload. Choosing a file
+//        that is already in the repo (same bytes = same git blob sha) reuses that link instead of uploading a copy.
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -128,6 +131,46 @@
     return base + '-' + Date.now().toString(36) + '.' + ext;
   }
 
+  const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+  const rawUrl = (c, path) => 'https://raw.githubusercontent.com/' + c.repo + '/' + encPath(c.branch || 'main') + '/' + encPath(path);
+
+  // the time fileName() put in a name (base 36 ms, maybe followed by a -xxxx retry part); 0 for other names
+  function upTime(name) {
+    const m = String(name).match(/-([0-9a-z]{8,9})(?:-[0-9a-z]{4})?\.\w+$/);
+    const t = m ? parseInt(m[1], 36) : 0;
+    return t > 1.5e12 && t < Date.now() + 864e5 ? t : 0;
+  }
+  // a readable title from a file name: "holo-wink-lzx8k2ab.gif" -> "holo wink"
+  const upTitle = name => (upTime(name) ? String(name).replace(/-[0-9a-z]{8,9}(?:-[0-9a-z]{4})?\.\w+$/, '') : String(name).replace(/\.\w+$/, '')).replace(/[-_]+/g, ' ').trim() || name;
+
+  // everything already in the upload folder (whatever device uploaded it), newest first: GIFs / pictures, or videos
+  async function ghList(c, video) {
+    const dir = ghPath(c);
+    const r = await requestFull('https://api.github.com/repos/' + c.repo + '/contents' + (dir ? '/' + encPath(dir) : '') + '?ref=' + encodeURIComponent(c.branch || 'main'), { headers: ghHeaders(c) });
+    if (r.status === 404) return []; // the folder is made by the first upload
+    if (r.status === 401) throw new Error('GitHub did not accept the token');
+    if (r.status !== 200) throw new Error('GitHub answered ' + r.status);
+    const j = ghJson(r.text);
+    if (!Array.isArray(j)) return [];
+    return j.filter(f => f && f.type === 'file' && (video ? VID_EXT : PIC_EXT).test(f.name))
+      .map((f, i) => {
+        const url = rawUrl(c, f.path);
+        return { key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: upTitle(f.name), gif: /\.gif$/i.test(f.name), video: !!video,
+          page: f.html_url || '', bytes: f.size, sha: f.sha, t: upTime(f.name), i };
+      })
+      .sort((a, b) => b.t - a.t || a.i - b.i);
+  }
+
+  // git's blob sha of a file: the same bytes already in the repo have the same sha (so no second upload)
+  async function blobSha(file) {
+    const body = new Uint8Array(await file.arrayBuffer());
+    const head = new TextEncoder().encode('blob ' + body.length + '\0');
+    const all = new Uint8Array(head.length + body.length);
+    all.set(head); all.set(body, head.length);
+    const d = new Uint8Array(await crypto.subtle.digest('SHA-1', all));
+    return [...d].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   // base64 of a file -> its raw.githubusercontent.com link
   async function ghUpload(c, name, b64) {
     const dir = ghPath(c);
@@ -138,10 +181,7 @@
         data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined }),
       });
       const j = ghJson(r.text);
-      if (r.status === 201 || r.status === 200) {
-        const branch = c.branch || 'main';
-        return 'https://raw.githubusercontent.com/' + c.repo + '/' + branch.split('/').map(encodeURIComponent).join('/') + '/' + path.split('/').map(encodeURIComponent).join('/');
-      }
+      if (r.status === 201 || r.status === 200) return rawUrl(c, path);
       if (r.status === 422 && !tries) continue; // that name exists already: once more with a new name
       if (r.status === 401) throw new Error('GitHub did not accept the token (wrong, expired or deleted)');
       if (r.status === 403 || r.status === 404) throw new Error('The token is not allowed to write to ' + c.repo + ' (give it Contents: Read and write)');
@@ -436,7 +476,7 @@
   tenor.booru = false; safebooru.booru = true; konachan.booru = true;
   const SOURCES = [tenor, safebooru, konachan, youtube];
 
-  if (TEST) { TEST.api = { parseYouTube, ytIdOf, request, requestFull, ghCheck, ghUpload, fileName, ghConf, isVideoFile, isPicFile, parseTenor, tenorMoreTerms, resolveTags, tagCount, SOURCES, aniCode, sizeTag, safeUrl, wordsOf, objectAt }; return; }
+  if (TEST) { TEST.api = { parseYouTube, ytIdOf, request, requestFull, ghCheck, ghUpload, ghList, blobSha, upTime, upTitle, fileName, ghConf, isVideoFile, isPicFile, parseTenor, tenorMoreTerms, resolveTags, tagCount, SOURCES, aniCode, sizeTag, safeUrl, wordsOf, objectAt }; return; }
 
   // ---------- settings ----------
   const S = Object.assign({
@@ -446,6 +486,17 @@
   S.on = Object.assign({ tenor: true, safebooru: true, konachan: true, youtube: true }, S.on || {});
   const saveSettings = () => store.set('settings', S);
   let recent = store.get('recent', []) || [];
+  // Your uploads, as last read from GitHub (per repo / branch / folder / kind; read again after a minute or an upload)
+  const upCache = {};
+  const upKey = (c, video) => [c.repo, c.branch, ghPath(c), video ? 'v' : 'p'].join('|');
+  function upList(c, video) {
+    const k = upKey(c, video), x = upCache[k];
+    if (x && Date.now() - x.at < 60000) return x.list;
+    const list = ghList(c, video);
+    upCache[k] = { at: Date.now(), list };
+    list.catch(() => { if (upCache[k] && upCache[k].list === list) delete upCache[k]; });
+    return list;
+  }
 
   // ---------- styles ----------
   const css = `
@@ -548,6 +599,13 @@
   .gp-view .pic iframe { width: min(100%, 960px); aspect-ratio: 16 / 9; height: auto; max-height: 100%; border: 0; border-radius: 6px; background: #000; }
   .gp-view .pic iframe.short { aspect-ratio: 9 / 16; width: auto; height: 100%; }
   .gp-up .gp-kind { align-self: flex-start; }
+  .gp-up .gp-mine { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; }
+  .gp-up .mine-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-top: 14px; border-top: 1px solid rgba(var(--tx), .15); }
+  .gp-up .mine-h h3 { flex: 1 1 auto; }
+  .gp-up .mine-h .n { font-weight: 400; opacity: .7; font-size: 13px; }
+  .gp-up .gp-q.find { flex: 1 1 100%; height: 34px; font-size: 14px; }
+  .gp-up .upbar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 8px 0 max(4px, env(safe-area-inset-bottom)); background: rgb(var(--fg)); }
+  .gp-up .upbar[hidden] { display: none; }
   .gp-tile:hover img, .gp-tile:focus-visible img { filter: brightness(1.08); }
   .gp-tile:focus-visible { outline: 3px solid rgb(var(--bl)); }
   .gp-tile .tag { position: absolute; left: 4px; top: 4px; font-size: 10px; font-weight: 700; background: rgba(0,0,0,.6); color: #fff;
@@ -874,6 +932,8 @@
         return m;
       }));
       trayAdd.textContent = 'Add ' + n;
+      // the upload screen covers the tray, so it has its own Add button (Your uploads with Pick several on)
+      for (const b of panel.querySelectorAll('.gp-upadd')) { b.parentNode.hidden = !n; b.textContent = 'Add ' + n + ' picked'; }
     }
 
     // records what was added, closes (unless Keep open)
@@ -899,10 +959,11 @@
     async function addPicked() {
       const list = st.picked.slice();
       if (!list.length || trayAdd.disabled) return;
-      trayAdd.disabled = true; trayAdd.textContent = 'Checking…';
+      const btns = [trayAdd, ...panel.querySelectorAll('.gp-upadd')];
+      for (const b of btns) { b.disabled = true; b.textContent = 'Checking…'; }
       const ok = await Promise.all(list.map(it => (it.yt ? true : loads(it.url, it.video))));
       if (!P || P.st !== st) return;
-      trayAdd.disabled = false;
+      for (const b of btns) b.disabled = false;
       const good = list.filter((it, i) => ok[i]);
       const bad = list.length - good.length;
       for (const t of panel.querySelectorAll('.gp-tile')) if (list.some((it, i) => !ok[i] && it.url === t.gpUrl)) t.classList.add('bad');
@@ -926,7 +987,7 @@
       const v = el('div', { class: 'gp-view' },
         el('div', { class: 'pic', onclick: e => { if (e.target === e.currentTarget) v.remove(); } }, big),
         el('div', { class: 'bar' },
-          el('div', { class: 'info' }, (src ? src.name : 'Recent') + (it.len ? ' · ' + it.len : '') + (it.w ? ' · ' + it.w + '×' + it.h : '') + (it.bytes ? ' · ' + mb(it.bytes) : '') + (it.title ? ' · ' + it.title : '') + (it.by ? ' · ' + it.by : '')),
+          el('div', { class: 'info' }, (src ? src.name : it.src === 'upload' ? 'Your upload' : 'Recent') + (it.len ? ' · ' + it.len : '') + (it.w ? ' · ' + it.w + '×' + it.h : '') + (it.bytes ? ' · ' + mb(it.bytes) : '') + (it.title ? ' · ' + it.title : '') + (it.by ? ' · ' + it.by : '')),
           it.page ? el('a', { class: 'gp-b', href: it.page, target: '_blank', rel: 'noopener noreferrer' }, it.yt ? 'On YouTube ↗' : 'Source ↗') : null,
           el('button', { class: 'gp-b', type: 'button', onclick: () => v.remove() }, 'Back'),
           S.multi || st.picked.length ? pickBtn : null,
@@ -1064,12 +1125,21 @@
         const list = files.slice(), conf = ghConf(kind);
         go.disabled = true; choose.disabled = true;
         const done = [], failed = [];
+        // the same file already in the repo (from any device) is reused, not uploaded again
+        say('Checking your repo…');
+        let have = [];
+        try { have = await upList(conf, vid); } catch (e) { /* cannot list: just upload */ }
+        let reused = 0;
         for (let i = 0; i < list.length; i++) {
           const f = list[i];
+          let sha = null;
+          try { if (have.length) sha = await blobSha(f); } catch (e) { /* no crypto here: upload */ }
+          const same = sha && have.find(h => h.sha === sha);
+          if (same) { done.push(Object.assign({}, same, { title: f.name || same.title })); reused++; continue; }
           say('Uploading ' + (list.length > 1 ? (i + 1) + ' of ' + list.length + ' (' + mb(f.size) + ')' : mb(f.size)) + ' to GitHub…' + (f.size > 8 * 1048576 ? ' big files take a little while' : ''));
           try {
             const url = await ghUpload(conf, fileName(f), await readB64(f));
-            done.push({ key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), video: vid, page: '' });
+            done.push({ key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), video: vid, page: '', fresh: true });
           } catch (e) {
             let m = e.message || 'Upload failed';
             if (conf.shared && /not allowed to write/.test(m)) m += '. It is your GIF token: add ' + conf.repo + ' to it on GitHub, or paste a separate token (Change)';
@@ -1078,13 +1148,14 @@
           }
         }
         go.disabled = false; choose.disabled = false;
+        if (done.length > reused) delete upCache[upKey(conf, vid)];
         if (!done.length) { say(failed.length ? failed[0].msg : 'Upload failed', 'bad'); return; }
-        say('Uploaded ' + done.length + '. Adding to your comment…', 'good');
+        say((done.length > reused ? 'Uploaded ' + (done.length - reused) : 'Already in your repo') + '. Adding to your comment…', 'good');
         // GitHub's raw links answer within seconds of the upload: wait briefly so the comment never gets a dead link
-        await Promise.all(done.map(async it => {
+        await Promise.all(done.filter(it => it.fresh).map(async it => {
           for (let i = 0; i < 4; i++) { if (await loads(it.url + (i ? '?t=' + i : ''), vid)) return; await new Promise(r => setTimeout(r, 1500)); }
         }));
-        deliverUploads(done, failed, v);
+        deliverUploads(done.map(it => Object.assign({}, it, { fresh: undefined, sha: undefined, i: undefined, t: undefined })), failed, v, reused);
       });
       body.append(
         el('h3', {}, vid ? 'Upload your own videos' : 'Upload your own'),
@@ -1096,20 +1167,64 @@
         el('p', {}, 'Goes to ', el('b', {}, c.repo + (ghPath(c) ? '/' + ghPath(c) : '')), ' on GitHub (public). ',
           el('a', { href: '#', onclick: e => { e.preventDefault(); uploadView(null, true, kind); } }, 'Change'), ' · ',
           el('a', { href: 'https://github.com/' + c.repo + (ghPath(c) ? '/tree/' + (c.branch || 'main') + '/' + ghPath(c) : ''), target: '_blank', rel: 'noopener' }, 'Open the repo')));
+
+      // Your uploads: what is already in that folder (any device), newest first; tap = add it again, no new upload
+      const mineN = el('span', { class: 'n' });
+      const find = el('input', { class: 'gp-q find', type: 'search', placeholder: 'Find by name', autocomplete: 'off', hidden: true, 'aria-label': 'Find your uploads by name' });
+      const mineGrid = el('div', { class: 'gp-grid gp-mine' });
+      const mineNote = el('div', { class: 'gp-status' }, 'Loading your uploads…');
+      const mineMore = el('button', { class: 'gp-b', type: 'button', hidden: true }, 'Show more');
+      const upAdd = el('button', { class: 'gp-b gp-go gp-upadd', type: 'button', onclick: () => addPicked() });
+      const upBar = el('div', { class: 'upbar', hidden: true }, upAdd);
+      const PAGE = 24;
+      let mine = [], shownN = 0;
+      const paintMine = more => {
+        const words = find.value.toLowerCase().split(/\s+/).filter(Boolean);
+        const list = words.length ? mine.filter(it => words.every(w => (it.title + ' ' + it.url).toLowerCase().includes(w))) : mine;
+        if (!more) { mineGrid.textContent = ''; shownN = 0; }
+        const next = list.slice(shownN, shownN + PAGE);
+        shownN += next.length;
+        mineGrid.append(...next.map(tile));
+        mineMore.hidden = shownN >= list.length;
+        if (!more) mineNote.textContent = !mine.length ? (vid ? 'No videos uploaded yet.' : 'Nothing uploaded yet.')
+          : !list.length ? 'None of your uploads match.'
+          : S.multi ? 'Pick several is on: tap to pick them, then Add.' : 'Tap one to add it to your comment again (no new upload). The magnifier shows it big.';
+      };
+      mineMore.addEventListener('click', () => paintMine(true));
+      find.addEventListener('input', () => paintMine());
+      find.addEventListener('keydown', e => { if (e.key !== 'Escape') e.stopPropagation(); });
+      body.append(el('div', { class: 'mine-h' }, el('h3', {}, vid ? 'Your videos ' : 'Your uploads ', mineN), find), mineNote, mineGrid, mineMore, upBar);
+      Promise.resolve(upList(c, vid)).then(list => {
+        if (!v.isConnected) return;
+        mine = list;
+        mineN.textContent = list.length ? '(' + list.length + ')' : '';
+        find.hidden = list.length < 9;
+        paintMine();
+      }, e => {
+        if (!v.isConnected) return;
+        // cannot read the repo: at least the uploads used on this device
+        mine = recent.filter(r => r.src === 'upload' && !!r.video === vid);
+        paintMine();
+        mineNote.textContent = 'Could not read your repo (' + (e.message || 'failed') + ')' + (mine.length ? '; showing the ones used on this device.' : '.');
+      });
       panel.appendChild(v);
+      paintTray();
       setFiles(file ? [].concat(file.length !== undefined && !(file instanceof Blob) ? [...file] : [file]) : []);
     }
 
     // Uploads ALWAYS end up in the comment, even when the picker was closed meanwhile; Pick several does not hold
     // them back (1.3.2 only picked them, and a closed picker dropped them without a word). No comment box left: the
     // code is copied to paste in.
-    function deliverUploads(items, failed, v) {
+    function deliverUploads(items, failed, v, reused) {
       for (const it of items.slice().reverse()) recent = [it].concat(recent.filter(r => r.url !== it.url));
       recent = recent.slice(0, 36);
       store.set('recent', recent);
       const code = aniCode(items, S);
       const ta = st.ta && st.ta.isConnected ? st.ta : lastTa && lastTa.isConnected ? lastTa : null;
-      const what = (items.length > 1 ? items.length + ' uploaded' : 'Uploaded') + (failed.length ? ' (' + failed.length + ' failed: ' + failed.map(f => f.name + ': ' + f.msg).join('; ') + ')' : '');
+      const fresh = items.length - (reused || 0);
+      const what = (!reused ? (items.length > 1 ? items.length + ' uploaded' : 'Uploaded')
+        : !fresh ? (reused > 1 ? reused + ' were already in your repo: reused them' : 'Already in your repo: reused it')
+        : fresh + ' uploaded, ' + reused + ' already in your repo (reused)') + (failed.length ? ' (' + failed.length + ' failed: ' + failed.map(f => f.name + ': ' + f.msg).join('; ') + ')' : '');
       const open = P && P.st === st;
       if (ta && insertText(ta, code)) {
         if (open && !S.keepOpen) closePicker(); else if (open) v.remove();
@@ -1207,8 +1322,8 @@
 
     const onKey = e => {
       if (e.key !== 'Escape') return;
-      const v = panel.querySelector('.gp-view');
-      if (v) v.remove(); else closePicker();
+      const vs = panel.querySelectorAll('.gp-view'); // the top one (a big view opened from the upload screen sits over it)
+      if (vs.length) vs[vs.length - 1].remove(); else closePicker();
       e.stopPropagation();
     };
     document.addEventListener('keydown', onKey, true);
