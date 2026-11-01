@@ -2,8 +2,8 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.0.0
-// @description  A GIF button in AniList's comment toolbar: search Tenor GIFs and SFW booru pictures (Safebooru, Konachan.net), see them as previews and tap one to put img(link) into your comment. Works in Tampermonkey on PC and on Firefox for Android.
+// @version      1.2.0
+// @description  A GIF button in AniList's comment toolbar: search Tenor GIFs and SFW booru pictures (Safebooru, Konachan.net), or upload your own GIF to your GitHub repo, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
@@ -13,6 +13,7 @@
 // @connect      tenor.com
 // @connect      safebooru.org
 // @connect      konachan.net
+// @connect      api.github.com
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
@@ -21,6 +22,11 @@
 //   That page gives 50 GIFs; "more" searches again with the words plus the tags those GIFs carry.
 // - Boorus search by tags, so the typed words are turned into Safebooru tags first: the longest run of words that
 //   is a real tag wins ("spice and wolf holo" -> spice_and_wolf + holo). Typing tags yourself (with _ ) also works.
+// 1.1.0: more sizes (150 ... 1000 px, quarter width, Original, a custom px box) and Pick several (numbered picks, added
+//        side by side or one per line in one go; Ctrl / Shift-click picks on PC).
+// 1.2.0: Upload your own: a GIF / picture from the PC or phone goes into YOUR public GitHub repo (contents API, a
+//        token that can write to that one repo, kept in Tampermonkey's storage and only ever sent to api.github.com),
+//        then img(raw.githubusercontent.com link) is added like any other pick.
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -40,19 +46,91 @@
     },
   };
 
-  function request(url) {
+  // any answer -> { status, text }; only a dead connection rejects
+  function requestFull(url, o = {}) {
     return new Promise((resolve, reject) => {
       const xhr = typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest
         : (typeof GM !== 'undefined' && GM && typeof GM.xmlHttpRequest === 'function' ? GM.xmlHttpRequest : null);
       if (!xhr) { reject(new Error('Tampermonkey cross-site requests are not allowed')); return; }
       xhr({
-        method: 'GET', url, timeout: 20000,
-        onload: r => (r.status >= 200 && r.status < 300 ? resolve(r.responseText || '') : reject(new Error('HTTP ' + r.status))),
+        method: o.method || 'GET', url, headers: o.headers, data: o.data, timeout: o.timeout || 20000,
+        onload: r => resolve({ status: r.status, text: r.responseText || '' }),
         onerror: () => reject(new Error('no answer')),
         ontimeout: () => reject(new Error('timed out')),
       });
     });
   }
+
+  // the boorus sometimes answer 404 / 429 / 5xx for a moment when busy: one more try before giving up
+  async function request(url) {
+    let r;
+    for (let tries = 0; tries < 2; tries++) {
+      if (tries) await new Promise(res => setTimeout(res, 1500));
+      try { r = await requestFull(url); } catch (e) { if (tries) throw e; continue; }
+      if (r.status >= 200 && r.status < 300) return r.text;
+      if (![404, 408, 429, 500, 502, 503, 504].includes(r.status)) break;
+    }
+    throw new Error('HTTP ' + r.status);
+  }
+
+  // ---------- your own uploads: a file -> your public GitHub repo -> raw link ----------
+  const ghConf = () => Object.assign({ repo: '', branch: '', folder: 'gifs', token: '' }, store.get('github', {}) || {});
+  const ghReady = c => /^[\w.-]+\/[\w.-]+$/.test(c.repo) && !!c.token;
+  const ghHeaders = c => ({ Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' });
+  const ghJson = t => { try { return JSON.parse(t); } catch (e) { return {}; } };
+  const ghPath = c => String(c.folder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/[^\w\/.-]+/g, '-');
+  const UP_TYPES = { 'image/gif': 'gif', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+  const UP_MAX = 25 * 1048576;
+
+  // checks the repo + token; fills in the branch; returns '' when fine, else what is wrong in plain words
+  async function ghCheck(c) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(c.repo)) return 'Repo must look like name/repo, e.g. YourName/gifs';
+    if (!c.token) return 'Paste a token first';
+    const r = await requestFull('https://api.github.com/repos/' + c.repo, { headers: ghHeaders(c) });
+    const j = ghJson(r.text);
+    if (r.status === 401) return 'GitHub did not accept the token (wrong, expired or deleted)';
+    if (r.status === 404 || r.status === 403) return 'Repo not found, or the token is not allowed to see it';
+    if (r.status !== 200) return 'GitHub answered ' + r.status + (j.message ? ': ' + j.message : '');
+    if (j.private) return 'That repo is private: people reading your comment could not see the pictures. Make it public (repo Settings > Change visibility).';
+    if (!c.branch) c.branch = j.default_branch || 'main';
+    return '';
+  }
+
+  function fileName(file) {
+    const ext = UP_TYPES[file.type] || (String(file.name).match(/\.(gif|png|jpe?g|webp)$/i) || [, 'gif'])[1].toLowerCase().replace('jpeg', 'jpg');
+    const base = String(file.name || 'gif').replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gif';
+    return base + '-' + Date.now().toString(36) + '.' + ext;
+  }
+
+  // base64 of a file -> its raw.githubusercontent.com link
+  async function ghUpload(c, name, b64) {
+    const dir = ghPath(c);
+    for (let tries = 0; tries < 2; tries++) {
+      const path = (dir ? dir + '/' : '') + (tries ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
+      const r = await requestFull('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
+        method: 'PUT', headers: ghHeaders(c), timeout: 180000,
+        data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined }),
+      });
+      const j = ghJson(r.text);
+      if (r.status === 201 || r.status === 200) {
+        const branch = c.branch || 'main';
+        return 'https://raw.githubusercontent.com/' + c.repo + '/' + branch.split('/').map(encodeURIComponent).join('/') + '/' + path.split('/').map(encodeURIComponent).join('/');
+      }
+      if (r.status === 422 && !tries) continue; // that name exists already: once more with a new name
+      if (r.status === 401) throw new Error('GitHub did not accept the token (wrong, expired or deleted)');
+      if (r.status === 403 || r.status === 404) throw new Error('The token is not allowed to write to ' + c.repo + ' (give it Contents: Read and write)');
+      if (r.status === 413) throw new Error('Too big for GitHub');
+      throw new Error('GitHub answered ' + r.status + (j.message ? ': ' + j.message : ''));
+    }
+    throw new Error('Could not find a free file name');
+  }
+
+  const readB64 = file => new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => rej(new Error('Could not read the file'));
+    fr.readAsDataURL(file);
+  });
 
   // ---------- helpers ----------
   const STOP = new Set(['a', 'an', 'and', 'the', 'of', 'to', 'in', 'on', 'with', 'from', 'for', 'x', 'vs', 'is', 'at', 'by']);
@@ -62,11 +140,23 @@
   const safeUrl = u => String(u).trim().replace(/[()!~'*\s]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
   const httpsOnly = u => (typeof u === 'string' && /^https:\/\//i.test(u) ? u : (typeof u === 'string' && /^\/\//.test(u) ? 'https:' + u : ''));
 
-  function aniCode(url, o) {
-    let c = (o.size || 'img') + '(' + safeUrl(url) + ')';
-    if (o.spoiler) c = '~!' + c + '!~';
-    if (o.center) c = '~~~' + c + '~~~';
-    return c;
+  // size 'img' = original size, 'img220' = 220 px wide, 'img50%' = half the comment width, 'custom' = o.px px
+  function sizeTag(o) {
+    if (o.size !== 'custom') return o.size || 'img';
+    const px = Math.round(+o.px);
+    return px >= 10 && px <= 5000 ? 'img' + px : 'img';
+  }
+
+  // several pictures: side by side (one line) or one per line; Centre wraps them all once.
+  // AniList turns ~~~ ~~~ into centre BEFORE it looks for ~! !~ and ends the centre at the first ~~~, so
+  // "~~~~!img()!~~~~" lost a ~ of the spoiler: Centre + Spoiler needs a space between them.
+  function aniCode(urls, o) {
+    const codes = [].concat(urls).map(u => {
+      const c = sizeTag(o) + '(' + safeUrl(u) + ')';
+      return o.spoiler ? '~!' + c + '!~' : c;
+    });
+    const all = codes.join(o.side === false ? '\n' : ' ');
+    return o.center ? (o.spoiler ? '~~~ ' + all + ' ~~~' : '~~~' + all + '~~~') : all;
   }
 
   // Every JSON object in a page that starts at index i (string-aware brace matching)
@@ -261,11 +351,11 @@
 
   const SOURCES = [tenor, safebooru, konachan];
 
-  if (TEST) { TEST.api = { request, parseTenor, tenorMoreTerms, resolveTags, tagCount, SOURCES, aniCode, safeUrl, wordsOf, objectAt }; return; }
+  if (TEST) { TEST.api = { request, requestFull, ghCheck, ghUpload, fileName, parseTenor, tenorMoreTerms, resolveTags, tagCount, SOURCES, aniCode, sizeTag, safeUrl, wordsOf, objectAt }; return; }
 
   // ---------- settings ----------
   const S = Object.assign({
-    mode: 'gif', size: 'img', spoiler: false, center: false, keepOpen: false, lastQ: '',
+    mode: 'gif', size: 'img', px: 350, spoiler: false, center: false, keepOpen: false, multi: false, side: true, lastQ: '',
     on: { tenor: true, safebooru: true, konachan: true },
   }, store.get('settings', {}) || {});
   S.on = Object.assign({ tenor: true, safebooru: true, konachan: true }, S.on || {});
@@ -304,6 +394,34 @@
   .gp-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 12px; }
   .gp-opts label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
   .gp-opts select { background: rgb(var(--bg)); color: rgb(var(--tx)); border: 0; border-radius: 4px; height: 28px; padding: 0 6px; font: inherit; }
+  .gp-opts .gp-px { width: 70px; background: rgb(var(--bg)); color: rgb(var(--tx)); border: 0; border-radius: 4px; height: 28px; padding: 0 6px; font: inherit; }
+  .gp-tile.picked::before { content: ''; position: absolute; inset: 0; border: 3px solid rgb(var(--bl)); border-radius: 4px; z-index: 1; pointer-events: none; }
+  .gp-tile.picked img { filter: brightness(.82); }
+  .gp-tile .num, .gp-tile .tag, .gp-tile .zoom { z-index: 2; }
+  .gp-tile .num { position: absolute; right: 4px; top: 4px; min-width: 24px; height: 24px; border-radius: 12px; background: rgb(var(--bl)); color: #fff;
+    font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; padding: 0 6px; pointer-events: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .gp-tray { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid rgba(var(--tx), .15);
+    background: rgb(var(--fg)); padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .gp-tray[hidden] { display: none; }
+  .gp-tray .thumbs { display: flex; gap: 4px; flex: 1 1 120px; min-width: 0; overflow-x: auto; }
+  .gp-tray .thumbs img { width: 34px; height: 34px; object-fit: cover; border-radius: 3px; flex: none; }
+  .gp-tray label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+  .gp-up { overflow-y: auto; }
+  .gp-up .box { max-width: 560px; width: 100%; margin: 0 auto; padding: 16px 14px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .gp-up h3 { margin: 0; font-size: 16px; }
+  .gp-up p { margin: 0; font-size: 12.5px; line-height: 1.55; opacity: .9; }
+  .gp-up a { color: rgb(var(--bl)); }
+  .gp-up .f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; }
+  .gp-up .f input { height: 36px; border: 0; border-radius: 4px; background: rgb(var(--bg)); color: rgb(var(--tx)); padding: 0 10px; font: inherit; font-weight: 400; font-size: 14px; }
+  .gp-up .drop { border: 2px dashed rgba(var(--tx), .35); border-radius: 8px; min-height: 180px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 10px; padding: 14px; text-align: center; }
+  .gp-up .drop.over { border-color: rgb(var(--bl)); background: rgba(var(--bl), .08); }
+  .gp-up .drop img { max-width: 100%; max-height: 260px; border-radius: 4px; }
+  .gp-up .msg { font-size: 12.5px; font-weight: 700; min-height: 18px; }
+  .gp-up .msg.bad { color: rgb(232, 93, 117); }
+  .gp-up .msg.good { color: rgb(var(--bl)); }
+  .gp-up .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .gp-status { font-size: 12px; opacity: .85; min-height: 16px; overflow-wrap: anywhere; }
   .gp-status b { color: rgb(var(--bl)); font-weight: 700; }
   .gp-grid-wrap { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 16px; -webkit-overflow-scrolling: touch; }
@@ -337,7 +455,7 @@
     .gp-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
     .gp-grid-wrap { padding: 8px 8px 24px; }
     .gp-top { padding: 10px 10px 8px; padding-top: max(10px, env(safe-area-inset-top)); }
-    .gp-q { font-size: 16px; }
+    .gp-q { font-size: 16px; flex-basis: 120px; }
   }
   @media (max-width: 360px) { .gp-grid { grid-template-columns: repeat(2, 1fr); } }
   `;
@@ -345,8 +463,10 @@
   style.textContent = css;
   (document.head || document.documentElement).appendChild(style);
 
+  const mb = n => (n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
   const SEP = ' · ';
   // drawn, not an emoji: Firefox on some phones has no emoji font for it
+  const UP_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6.5 9.5 12 4l5.5 5.5M4 20h16"/></svg>';
   const ZOOM_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>';
 
   const el = (tag, attrs, ...kids) => {
@@ -406,11 +526,14 @@
     if (P) closePicker();
     const st = {
       ta, q: '', mode: S.mode, gen: 0, seen: new Set(), loading: false, src: {}, tags: null, count: 0,
+      picked: [], // several at once: kept across searches until added or the picker closes
     };
     const q = el('input', { class: 'gp-q', type: 'search', placeholder: 'Search GIFs / pictures, e.g. spice and wolf holo', enterkeyhint: 'search', autocomplete: 'off' });
     q.value = S.lastQ || '';
     const go = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => search(q.value) }, 'Search');
     const x = el('button', { class: 'gp-b gp-x', type: 'button', title: 'Close (Esc)', 'aria-label': 'Close', onclick: closePicker }, '×');
+    const upBtn = el('button', { class: 'gp-b gp-x gp-upbtn', type: 'button', title: 'Upload your own GIF / picture', 'aria-label': 'Upload your own', onclick: () => uploadView() });
+    upBtn.innerHTML = UP_ICON;
     const segGif = el('button', { type: 'button' }, 'GIF');
     const segPic = el('button', { type: 'button' }, 'Picture');
     const seg = el('div', { class: 'gp-seg' }, segGif, segPic);
@@ -419,28 +542,43 @@
       chips[s.id] = el('button', { class: 'gp-chip', type: 'button', onclick: () => { S.on[s.id] = !S.on[s.id]; saveSettings(); paintTop(); if (st.q) search(st.q); } },
         s.name, el('span', { class: 'n' }));
     }
-    const size = el('select', { title: 'Picture width in the comment' },
-      ...[['img', 'Full size'], ['img220', '220 px'], ['img300', '300 px'], ['img400', '400 px'], ['img50%', 'Half width'], ['img100%', 'Full width']]
-        .map(([v, t]) => el('option', { value: v }, t)));
-    size.value = S.size;
-    size.addEventListener('change', () => { S.size = size.value; saveSettings(); });
-    const box = (k, label) => {
+    const SIZES = [['img', 'Original'], ['img150', '150 px'], ['img220', '220 px'], ['img250', '250 px'], ['img300', '300 px'],
+      ['img400', '400 px'], ['img500', '500 px'], ['img600', '600 px'], ['img800', '800 px'], ['img1000', '1000 px'],
+      ['img25%', 'Quarter width'], ['img50%', 'Half width'], ['img100%', 'Full width'], ['custom', 'Custom px…']];
+    const size = el('select', { title: 'Picture width in the comment' }, ...SIZES.map(([v, t]) => el('option', { value: v }, t)));
+    size.value = SIZES.some(s => s[0] === S.size) ? S.size : 'img';
+    const px = el('input', { class: 'gp-px', type: 'number', min: '10', max: '5000', step: '10', inputmode: 'numeric', title: 'Width in pixels', 'aria-label': 'Width in pixels' });
+    px.value = S.px || 350;
+    const showPx = () => { px.hidden = size.value !== 'custom'; };
+    size.addEventListener('change', () => { S.size = size.value; saveSettings(); showPx(); if (!px.hidden) px.focus(); });
+    px.addEventListener('input', () => { S.px = Math.round(+px.value) || 0; saveSettings(); });
+    px.addEventListener('keydown', e => e.stopPropagation());
+    showPx();
+    const box = (k, label, after) => {
       const c = el('input', { type: 'checkbox' });
       c.checked = !!S[k];
-      c.addEventListener('change', () => { S[k] = c.checked; saveSettings(); });
+      c.addEventListener('change', () => { S[k] = c.checked; saveSettings(); if (after) after(); });
       return el('label', {}, c, label);
     };
+    const multiBox = box('multi', 'Pick several', () => paintTray());
+    const trayThumbs = el('div', { class: 'thumbs' });
+    const trayAdd = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => addPicked() });
+    const tray = el('div', { class: 'gp-tray', hidden: true },
+      trayThumbs,
+      box('side', 'Side by side'),
+      el('button', { class: 'gp-b', type: 'button', onclick: () => { st.picked = []; markPicked(); paintTray(); } }, 'Clear'),
+      trayAdd);
     const status = el('div', { class: 'gp-status' });
     const grid = el('div', { class: 'gp-grid' });
     const more = el('div', { class: 'gp-more' });
     const wrap = el('div', { class: 'gp-grid-wrap' }, grid, more);
     const panel = el('div', { class: 'gp-panel', role: 'dialog', 'aria-label': 'GIF and picture search' },
       el('div', { class: 'gp-top' },
-        el('div', { class: 'gp-row' }, q, go, x),
+        el('div', { class: 'gp-row' }, q, go, upBtn, x),
         el('div', { class: 'gp-row' }, seg, ...SOURCES.map(s => chips[s.id])),
-        el('div', { class: 'gp-opts' }, el('label', {}, 'Size ', size), box('spoiler', 'Spoiler'), box('center', 'Centre'), box('keepOpen', 'Keep open after adding')),
+        el('div', { class: 'gp-opts' }, el('label', {}, 'Size ', size, px), box('spoiler', 'Spoiler'), box('center', 'Centre'), multiBox, box('keepOpen', 'Keep open after adding')),
         status),
-      wrap);
+      wrap, tray);
     const ov = el('div', { class: 'gp-ov', onclick: e => { if (e.target === ov) closePicker(); } }, panel);
 
     const setMode = m => { if (st.mode === m) return; st.mode = S.mode = m; saveSettings(); paintTop(); if (st.q) search(st.q); };
@@ -464,7 +602,7 @@
 
     function paintStatus() {
       status.textContent = '';
-      if (!st.q) { status.append('Type what you want and press Enter. Tap a picture to add it; the magnifier on a picture shows it big first.'); return; }
+      if (!st.q) { status.append('Type what you want and press Enter. Tap a picture to add it (or turn on Pick several); the magnifier shows it big first.'); return; }
       const parts = [];
       const on = SOURCES.filter(s => usable(s) && S.on[s.id]);
       if (!on.length) { status.append('Turn on a source above.'); return; }
@@ -492,11 +630,49 @@
       const zoom = el('button', { class: 'zoom', type: 'button', title: 'See it big', 'aria-label': 'See it big', onclick: e => { e.stopPropagation(); view(it); } });
       zoom.innerHTML = ZOOM_ICON;
       const src = SOURCES.find(s => s.id === it.src);
-      const t = el('div', { class: 'gp-tile', tabindex: '0', title: (it.title ? it.title + '\n' : '') + (it.w ? it.w + '×' + it.h + ' · ' : '') + (src ? src.name : 'recent') },
-        img, el('span', { class: 'tag' }, src ? src.short : '↺'), zoom);
-      t.addEventListener('click', () => pick(it, t));
-      t.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(it, t); } });
+      const mine = it.src === 'upload';
+      const t = el('div', { class: 'gp-tile', tabindex: '0', title: (it.title ? it.title + '\n' : '') + (it.w ? it.w + '×' + it.h + ' · ' : '') + (src ? src.name : mine ? 'your upload' : 'recent') },
+        img, el('span', { class: 'tag' }, src ? src.short : mine ? 'UP' : '↺'), zoom);
+      t.gpUrl = it.url;
+      // Pick several on (or Ctrl / Shift / Cmd-click on PC): tap = pick / unpick; otherwise tap = add straight away
+      const act = e => { if (S.multi || e.ctrlKey || e.shiftKey || e.metaKey) togglePick(it); else pick(it, t); };
+      t.addEventListener('click', act);
+      t.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(e); } });
+      markTile(t);
       return t;
+    }
+
+    function markTile(t) {
+      const i = st.picked.findIndex(p => p.url === t.gpUrl);
+      t.classList.toggle('picked', i >= 0);
+      let n = t.querySelector('.num');
+      if (i < 0) { if (n) n.remove(); return; }
+      if (!n) { n = el('span', { class: 'num' }); t.appendChild(n); }
+      n.textContent = i + 1;
+    }
+    function markPicked() { for (const t of panel.querySelectorAll('.gp-tile')) markTile(t); }
+
+    function togglePick(it) {
+      const i = st.picked.findIndex(p => p.url === it.url);
+      if (i >= 0) st.picked.splice(i, 1); else st.picked.push(it);
+      markPicked(); paintTray();
+    }
+
+    function paintTray() {
+      const n = st.picked.length;
+      tray.hidden = !n;
+      trayThumbs.textContent = '';
+      trayThumbs.append(...st.picked.map(p => el('img', { src: p.still || p.thumb, alt: '', title: 'Tap to unpick', onclick: () => togglePick(p) })));
+      trayAdd.textContent = 'Add ' + n;
+    }
+
+    // records what was added, closes (unless Keep open)
+    function added(items) {
+      for (const it of items.slice().reverse()) recent = [Object.assign({}, it, { tags: undefined })].concat(recent.filter(r => r.url !== it.url));
+      recent = recent.slice(0, 36);
+      store.set('recent', recent);
+      const what = items.length > 1 ? items.length + ' added' : 'Added ' + (items[0].gif ? 'GIF' : 'picture');
+      if (S.keepOpen) toast(what); else { closePicker(); toast(what + ' to your comment'); }
     }
 
     async function pick(it, t) {
@@ -506,25 +682,156 @@
       if (t) t.classList.remove('busy');
       if (!P || P.st !== st) return;
       if (!ok) { if (t) t.classList.add('bad'); toast('That one will not load from its site, pick another'); return; }
-      const code = aniCode(it.url, S);
-      if (!insertText(st.ta, code)) { toast('The comment box is gone, open the picker from the box again'); return; }
-      recent = [Object.assign({}, it, { tags: undefined })].concat(recent.filter(r => r.url !== it.url)).slice(0, 36);
-      store.set('recent', recent);
-      if (S.keepOpen) toast('Added ' + (it.gif ? 'GIF' : 'picture')); else { closePicker(); toast('Added to your comment'); }
+      if (!insertText(st.ta, aniCode([it.url], S))) { toast('The comment box is gone, open the picker from the box again'); return; }
+      added([it]);
+    }
+
+    async function addPicked() {
+      const list = st.picked.slice();
+      if (!list.length || trayAdd.disabled) return;
+      trayAdd.disabled = true; trayAdd.textContent = 'Checking…';
+      const ok = await Promise.all(list.map(it => loads(it.url)));
+      if (!P || P.st !== st) return;
+      trayAdd.disabled = false;
+      const good = list.filter((it, i) => ok[i]);
+      const bad = list.length - good.length;
+      for (const t of panel.querySelectorAll('.gp-tile')) if (list.some((it, i) => !ok[i] && it.url === t.gpUrl)) t.classList.add('bad');
+      if (!good.length) { st.picked = []; markPicked(); paintTray(); toast('None of those load from their sites, pick others'); return; }
+      if (!insertText(st.ta, aniCode(good.map(it => it.url), S))) { paintTray(); toast('The comment box is gone, open the picker from the box again'); return; }
+      st.picked = []; markPicked(); paintTray();
+      if (bad) toast(bad + ' did not load from their site and were left out');
+      if (bad && !S.keepOpen) { setTimeout(() => added(good), 1200); return; }
+      added(good);
     }
 
     function view(it) {
       const big = el('img', { src: it.url, alt: it.title || '' });
       const src = SOURCES.find(s => s.id === it.src);
+      const isPicked = () => st.picked.some(p => p.url === it.url);
+      const pickBtn = el('button', { class: 'gp-b', type: 'button', onclick: () => { togglePick(it); pickBtn.textContent = isPicked() ? 'Unpick' : 'Pick'; } }, isPicked() ? 'Unpick' : 'Pick');
       const v = el('div', { class: 'gp-view' },
         el('div', { class: 'pic', onclick: e => { if (e.target === e.currentTarget) v.remove(); } }, big),
         el('div', { class: 'bar' },
-          el('div', { class: 'info' }, (src ? src.name : 'Recent') + (it.w ? ' · ' + it.w + '×' + it.h : '') + (it.bytes ? ' · ' + (it.bytes / 1048576).toFixed(1) + ' MB' : '') + (it.title ? ' · ' + it.title : '')),
+          el('div', { class: 'info' }, (src ? src.name : 'Recent') + (it.w ? ' · ' + it.w + '×' + it.h : '') + (it.bytes ? ' · ' + mb(it.bytes) : '') + (it.title ? ' · ' + it.title : '')),
           it.page ? el('a', { class: 'gp-b', href: it.page, target: '_blank', rel: 'noopener noreferrer' }, 'Source ↗') : null,
           el('button', { class: 'gp-b', type: 'button', onclick: () => v.remove() }, 'Back'),
+          S.multi || st.picked.length ? pickBtn : null,
           el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => { v.remove(); pick(it, null); } }, 'Add to comment')));
       panel.appendChild(v);
     }
+
+    // Upload your own: the GitHub setup the first time (or via Settings), then choose / drop / paste a file
+    function uploadView(file, setup) {
+      for (const old of panel.querySelectorAll('.gp-view')) old.remove();
+      const c = ghConf();
+      const v = el('div', { class: 'gp-view gp-up' });
+      const body = el('div', { class: 'box' });
+      v.appendChild(body);
+      const back = el('button', { class: 'gp-b', type: 'button', onclick: () => v.remove() }, 'Back');
+      const msg = el('div', { class: 'msg' });
+      const say = (t, kind) => { msg.textContent = t; msg.className = 'msg' + (kind ? ' ' + kind : ''); };
+
+      if (setup || !ghReady(c)) {
+        const field = (label, attrs, value) => { const i = el('input', Object.assign({ autocomplete: 'off', spellcheck: 'false' }, attrs)); i.value = value || ''; i.addEventListener('keydown', e => e.stopPropagation()); return [el('label', { class: 'f' }, label, i), i]; };
+        const [fRepo, iRepo] = field('Your public GitHub repo (name/repo)', { placeholder: 'YourName/gifs' }, c.repo);
+        const [fBranch, iBranch] = field('Branch (empty = the repo\'s main one)', { placeholder: 'main' }, c.branch);
+        const [fFolder, iFolder] = field('Folder in the repo (empty = top)', { placeholder: 'gifs' }, c.folder);
+        const [fTok, iTok] = field('Token', { type: 'password', placeholder: c.token ? 'saved (paste a new one to replace it)' : 'github_pat_…' }, '');
+        const save = el('button', { class: 'gp-b gp-go', type: 'button' }, 'Save and check');
+        save.addEventListener('click', async () => {
+          const n = { repo: iRepo.value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '').replace(/\.git$/, ''), branch: iBranch.value.trim(),
+            folder: iFolder.value.trim(), token: iTok.value.trim() || c.token };
+          save.disabled = true; say('Checking with GitHub…');
+          let bad;
+          try { bad = await ghCheck(n); } catch (e) { bad = 'GitHub did not answer (' + e.message + ')'; }
+          save.disabled = false;
+          if (bad) { say(bad, 'bad'); return; }
+          store.set('github', n);
+          say('Saved. Uploads go to ' + n.repo + (ghPath(n) ? '/' + ghPath(n) : '') + ' (' + n.branch + ')', 'good');
+          setTimeout(() => { if (v.isConnected) uploadView(file); }, 900);
+        });
+        body.append(
+          el('h3', {}, 'Upload your own: set up once'),
+          el('p', {}, 'Your GIFs are stored in a GitHub repo of yours, and the comment links to them there. The repo must be public so everyone can see them.'),
+          el('p', {}, '1. Make a new public repo on GitHub, e.g. "gifs" (', el('a', { href: 'https://github.com/new', target: '_blank', rel: 'noopener' }, 'github.com/new'), ').'),
+          el('p', {}, '2. Make a token (', el('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'fine-grained token'),
+            '): Repository access > Only select repositories > that repo; Permissions > Contents > Read and write. Pick an expiry you like, then Generate and copy it.'),
+          el('p', {}, '3. Fill in below. The token is kept in Tampermonkey on this device and only ever sent to GitHub.'),
+          fRepo, fBranch, fFolder, fTok,
+          el('div', { class: 'row' }, save, back, ghReady(c) ? el('button', { class: 'gp-b', type: 'button', onclick: () => { store.set('github', Object.assign(c, { token: '' })); say('Token removed from this device', 'good'); } }, 'Forget token') : null),
+          msg);
+        panel.appendChild(v);
+        if (!matchMedia('(hover: none)').matches) (c.repo ? iTok : iRepo).focus();
+        return;
+      }
+
+      const input = el('input', { type: 'file', accept: 'image/gif,image/png,image/jpeg,image/webp', hidden: true });
+      const choose = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => input.click() }, 'Choose a GIF / picture');
+      const drop = el('div', { class: 'drop' });
+      const go = el('button', { class: 'gp-b gp-go', type: 'button', hidden: true }, 'Upload and add');
+      let cur = null, curUrl = '';
+      const setFile = f => {
+        if (curUrl) URL.revokeObjectURL(curUrl);
+        cur = null; curUrl = ''; go.hidden = true;
+        drop.textContent = '';
+        if (!f) { drop.append(choose, el('p', {}, matchMedia('(hover: none)').matches ? 'From your gallery or files' : 'or drag one here, or paste it (Ctrl+V)')); return; }
+        if (!UP_TYPES[f.type] && !/\.(gif|png|jpe?g|webp)$/i.test(f.name || '')) { say('That is not a GIF / PNG / JPG / WebP picture', 'bad'); setFile(null); return; }
+        if (f.size > UP_MAX) { say('That file is ' + (f.size / 1048576).toFixed(1) + ' MB; the limit is 25 MB (make it smaller first)', 'bad'); setFile(null); return; }
+        cur = f; curUrl = URL.createObjectURL(f);
+        drop.append(el('img', { src: curUrl, alt: '' }), el('p', {}, (f.name || 'pasted picture') + ' · ' + mb(f.size)),
+          el('button', { class: 'gp-b', type: 'button', onclick: () => input.click() }, 'Choose another'));
+        go.hidden = false;
+        say('');
+      };
+      input.addEventListener('change', () => setFile(input.files && input.files[0]));
+      drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+      drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+      drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) setFile(f); });
+      go.addEventListener('click', async () => {
+        if (!cur) return;
+        const f = cur;
+        go.disabled = true; choose.disabled = true;
+        say('Uploading ' + mb(f.size) + ' to GitHub…');
+        try {
+          const url = await ghUpload(ghConf(), fileName(f), await readB64(f));
+          if (!v.isConnected || !P || P.st !== st) return;
+          const it = { key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), page: '' };
+          // GitHub's raw links answer within seconds of the upload; wait for it so the comment never gets a dead link
+          let ok = false;
+          for (let i = 0; i < 6 && !ok; i++) { ok = await loads(url + (i ? '?t=' + i : '')); if (!ok) await new Promise(r => setTimeout(r, 2000)); }
+          if (!P || P.st !== st) return;
+          v.remove();
+          if (S.multi) { st.picked.push(it); markPicked(); paintTray(); toast('Uploaded and picked'); return; }
+          if (!insertText(st.ta, aniCode([url], S))) { toast('Uploaded, but the comment box is gone'); return; }
+          if (!ok) toast('Uploaded; GitHub may take a minute before it shows');
+          added([it]);
+        } catch (e) {
+          go.disabled = false; choose.disabled = false;
+          say(e.message || 'Upload failed', 'bad');
+        }
+      });
+      body.append(
+        el('h3', {}, 'Upload your own'),
+        drop, input,
+        el('div', { class: 'row' }, go, back),
+        msg,
+        el('p', {}, 'Goes to ', el('b', {}, c.repo + (ghPath(c) ? '/' + ghPath(c) : '')), ' on GitHub (public). ',
+          el('a', { href: '#', onclick: e => { e.preventDefault(); uploadView(null, true); } }, 'Change'), ' · ',
+          el('a', { href: 'https://github.com/' + c.repo + (ghPath(c) ? '/tree/' + (c.branch || 'main') + '/' + ghPath(c) : ''), target: '_blank', rel: 'noopener' }, 'Open the repo')));
+      panel.appendChild(v);
+      setFile(file || null);
+    }
+
+    // PC: paste or drop a picture anywhere on the picker = upload it
+    panel.addEventListener('paste', e => {
+      const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(f => /^image\//.test(f.type));
+      if (f) { e.preventDefault(); uploadView(f); }
+    });
+    panel.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+    panel.addEventListener('drop', e => {
+      const f = e.dataTransfer && e.dataTransfer.files[0];
+      if (f && !e.defaultPrevented) { e.preventDefault(); uploadView(f); }
+    });
 
     function showRecent() {
       grid.textContent = '';
