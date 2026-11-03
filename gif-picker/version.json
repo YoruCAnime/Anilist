@@ -1,1 +1,1 @@
-{ "version": "1.5.1", "notes": "Hears about new versions within an hour, and the Tampermonkey menu has Check for updates now" }
+{ "version": "1.5.2", "notes": "Uploads no longer show your GitHub account's main email (they use its private no-reply address)" }

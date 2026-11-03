@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.1
+// @version      1.5.2
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -47,6 +47,7 @@
 //        that is already in the repo (same bytes = same git blob sha) reuses that link instead of uploading a copy.
 // 1.5.1: looks for a new version once an hour (was 6 h) and when the picker opens after that; Tampermonkey menu
 //        "Check for updates now"; version.json + the Update link read refs/heads/main (plain /main/ lags ~5 min).
+// 1.5.2: uploads are signed with the GitHub account's no-reply address (GitHub put its main email on API commits).
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -173,14 +174,26 @@
     return [...d].map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // GitHub signs API commits with the account's main email, public on every commit: use its no-reply address
+  const ghWho = {};
+  async function ghCommitter(c) {
+    if (!ghWho[c.token]) {
+      const r = await requestFull('https://api.github.com/user', { headers: ghHeaders(c) }).catch(() => ({}));
+      const j = r.status === 200 ? ghJson(r.text) : {};
+      if (j.id && j.login) ghWho[c.token] = { name: j.login, email: j.id + '+' + j.login + '@users.noreply.github.com' };
+    }
+    return ghWho[c.token];
+  }
+
   // base64 of a file -> its raw.githubusercontent.com link
   async function ghUpload(c, name, b64) {
     const dir = ghPath(c);
+    const who = await ghCommitter(c);
     for (let tries = 0; tries < 2; tries++) {
       const path = (dir ? dir + '/' : '') + (tries ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
       const r = await requestFull('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
         method: 'PUT', headers: ghHeaders(c), timeout: 180000,
-        data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined }),
+        data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined, committer: who }),
       });
       const j = ghJson(r.text);
       if (r.status === 201 || r.status === 200) return rawUrl(c, path);
