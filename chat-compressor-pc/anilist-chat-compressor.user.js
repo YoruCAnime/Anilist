@@ -2,7 +2,7 @@
 // @name         AniList Chat View
 // @namespace    exos.anilist.chatview
 // @author       YoruC
-// @version      2.7
+// @version      2.9
 // @description  Fast, compact chat view for AniList activity threads, only on direct activity links (anilist.co/activity/ID). Loads just the newest replies instead of the whole thread. Home, profile overview and feeds are left untouched.
 // @match        https://anilist.co/*
 // @grant        none
@@ -302,7 +302,44 @@
     const vm = m.md != null ? mdMount(m.md) : null;
     if (vm) { box._vm = vm; box.appendChild(vm.$el); }
     else box.append(...cleanHtml(m.html).childNodes);
+    setTimeout(() => { if (box.isConnected) warmPics(box); }, 50);
   }
+
+  // ---- pictures: fetch spoiler pictures early, ask again for broken ones --------
+  // AniList keeps a spoiler's content in data-content until you open it, so its pictures only
+  // start downloading on the click. Image hosts like imgbb can take ~30 s for a picture nobody
+  // opened lately (and then often answer 503). So the shown messages' spoiler pictures are fetched
+  // in the background (the click then shows them from the browser cache), and a picture that
+  // fails is asked for again a few times.
+  const warmed = new Set();
+  function picsIn(root, out) {
+    root.querySelectorAll('img[src]').forEach(i => out.push(i.getAttribute('src')));
+    root.querySelectorAll('[data-content]').forEach(n => {
+      picsIn(new DOMParser().parseFromString(n.getAttribute('data-content') || '', 'text/html'), out);
+    });
+    return out;
+  }
+  function warmPics(box) {
+    for (const src of picsIn(box, [])) if (!warmed.has(src)) warm(src, 0);
+  }
+  function warm(src, tries) {
+    if (!/^https?:\/\//i.test(src)) return;
+    warmed.add(src);
+    const im = new Image();
+    im.decoding = 'async';
+    im.onerror = () => { if (tries < 2) setTimeout(() => warm(src, tries + 1), 3000 * (tries + 1)); };
+    im.src = src;
+  }
+  const RETRY_MS = [1500, 4000, 9000];
+  document.addEventListener('error', e => {
+    const i = e.target;
+    if (!(i instanceof HTMLImageElement) || !i.closest('.acv-list, .acv-thread')) return;
+    const n = +(i.dataset.acvRetry || 0);
+    if (n >= RETRY_MS.length) return;
+    i.dataset.acvRetry = n + 1;
+    const src = i.getAttribute('src');
+    setTimeout(() => { if (i.isConnected && src) { i.removeAttribute('src'); i.setAttribute('src', src); } }, RETRY_MS[n]);
+  }, true);
 
   function dropEl(el) {
     el.querySelectorAll('.acv-text, .acv-preview').forEach(b => { if (b._vm) { try { b._vm.$destroy(); } catch (e) {} b._vm = null; } });
