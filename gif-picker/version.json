@@ -1,1 +1,1 @@
-{ "version": "1.5.3", "notes": "Uploads count the seconds while GitHub works, so a slow upload no longer looks stuck" }
+{ "version": "1.5.4", "notes": "Later now hides this notice only until you reload the page" }

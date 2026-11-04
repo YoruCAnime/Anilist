@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.3
+// @version      1.5.4
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -41,7 +41,7 @@
 //        into the comment now: 1.3.x only picked them with Pick several on, and a picker closed during the upload
 //        dropped the link without a word; no comment box left -> the code is copied (GM_setClipboard).
 //        Update notice: when version.json in the repo names a newer version, a dot on the GIF button and a bar in the
-//        picker (glowing Update -> the raw script link -> Tampermonkey's own update page; Later = quiet till the next one).
+//        picker (glowing Update -> the raw script link -> Tampermonkey's own update page; Later = quiet until the page is reloaded).
 // 1.5.0: Your uploads on the upload screen: everything already in your upload folder (read from the repo, so uploads
 //        from other devices show too), newest first, a name filter; tap = add it again, no new upload. Choosing a file
 //        that is already in the repo (same bytes = same git blob sha) reuses that link instead of uploading a copy.
@@ -686,7 +686,7 @@
 
   // ---------- update notice: a bar in the picker + a dot on the GIF button; nothing installs by itself ----------
   // version.json in the repo says the newest version; Update opens the script's raw link, which Tampermonkey turns
-  // into its own Update page (one more click). Later = quiet until the next version.
+  // into its own Update page (one more click). Later = quiet until the page is reloaded.
   // refs/heads/main = the newest commit; plain /main/ can hand out a copy up to 5 minutes old (1.4.0 after a release)
   const RAW = 'https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/gif-picker/';
   const MY_VERSION = typeof GM_info !== 'undefined' && GM_info && GM_info.script ? String(GM_info.script.version || '') : '';
@@ -695,9 +695,12 @@
     for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
     return false;
   };
+  // Later = quiet on THIS page only: a refresh / new page shows the notice again (1.5.4, Exos: "show after refresh
+  // again"; it used to stay quiet until the next version, saved as skipVersion - no longer read)
+  let laterFor = '';
   const pendingUpdate = () => {
     const u = store.get('update', {}) || {};
-    return MY_VERSION && u.version && newer(u.version, MY_VERSION) && store.get('skipVersion', '') !== u.version ? u : null;
+    return MY_VERSION && u.version && newer(u.version, MY_VERSION) && laterFor !== u.version ? u : null;
   };
   function markUpdate() {
     const u = pendingUpdate();
@@ -734,7 +737,7 @@
     const bar = el('div', { class: 'gp-upd' },
       el('span', { class: 'txt' }, el('b', {}, 'New version ' + u.version), u.notes ? ': ' + u.notes : ''),
       go,
-      el('button', { class: 'gp-b', type: 'button', onclick: () => { store.set('skipVersion', u.version); bar.remove(); markUpdate(); } }, 'Later'));
+      el('button', { class: 'gp-b', type: 'button', onclick: () => { laterFor = u.version; bar.remove(); markUpdate(); } }, 'Later'));
     return bar;
   }
 
@@ -1447,7 +1450,7 @@
     GM_registerMenuCommand('Check for updates now', async () => {
       if (!MY_VERSION) { toast('Tampermonkey did not say which version this is'); return; }
       toast('Checking for updates…');
-      store.set('skipVersion', ''); // asked by hand: show it even after Later
+      laterFor = ''; // asked by hand: show it even after Later
       const u = await checkUpdate(true);
       if (u === false) toast('Could not reach GitHub, try again in a bit');
       else if (u) { showUpdateBar(); toast('Version ' + u.version + ' is out: press Update in the picker (GIF button)', 7000); }
