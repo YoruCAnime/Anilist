@@ -1,1 +1,1 @@
-{ "version": "1.5.4", "notes": "Later now hides this notice only until you reload the page" }
+{ "version": "1.5.5", "notes": "Uploads are much faster: they go straight to GitHub instead of through Tampermonkey (3.7 MB took 40 s+ in Brave)" }

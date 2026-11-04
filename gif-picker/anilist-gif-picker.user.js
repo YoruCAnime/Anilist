@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.4
+// @version      1.5.5
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -185,13 +185,35 @@
     return ghWho[c.token];
   }
 
+  // Big uploads go straight from the page to api.github.com (GitHub allows that from any site), not through
+  // Tampermonkey: in Brave its cross-site request crawled with big files (3.7 MB: 40 s+, while the same send from
+  // the PC took 2.7 s - 2026-11-04). If the browser refuses the direct send, Tampermonkey's request is used as before.
+  async function ghSend(url, o) {
+    if (typeof fetch === 'function' && typeof AbortController === 'function') {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), o.timeout || 20000);
+      let res;
+      try {
+        res = await fetch(url, { method: o.method || 'GET', headers: o.headers, body: o.data, signal: ac.signal, credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer' });
+      } catch (e) {
+        clearTimeout(timer);
+        if (e && e.name === 'AbortError') throw new Error('timed out');
+        res = null; // blocked (CORS / site rules / extension): Tampermonkey's way below
+      }
+      if (res) {
+        try { return { status: res.status, text: await res.text() }; } finally { clearTimeout(timer); }
+      }
+    }
+    return requestFull(url, o);
+  }
+
   // base64 of a file -> its raw.githubusercontent.com link
   async function ghUpload(c, name, b64) {
     const dir = ghPath(c);
     const who = await ghCommitter(c);
     for (let tries = 0; tries < 2; tries++) {
       const path = (dir ? dir + '/' : '') + (tries ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
-      const r = await requestFull('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
+      const r = await ghSend('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
         // 3 min, + 10 s per MB: a slow GitHub can take minutes and still save the file
         method: 'PUT', headers: ghHeaders(c), timeout: 180000 + Math.round(b64.length * 0.75 / 1048576) * 10000,
         data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined, committer: who }),
