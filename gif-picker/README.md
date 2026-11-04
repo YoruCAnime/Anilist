@@ -89,7 +89,7 @@ Your GIF is stored in a **public GitHub repo of your own**, and the comment link
 
 After that: **⬆** → **Choose GIFs / pictures** (on a phone: from your gallery). On PC you can also drag files
 onto the picker or paste them (Ctrl+V). **Upload and add** uploads them and adds `img(link)` at your chosen size.
-GIF, PNG, JPG or WebP, up to 25 MB each.
+GIF, PNG, JPG, WebP or AVIF, up to 25 MB each.
 
 **Several at once:** choose up to 20 files (**Add more** adds others, **×** on a preview leaves it out). A **Layout**
 switch appears: **Side by side** (in a row, sized to fit) or **Under each other**. **Upload N and add** uploads them one

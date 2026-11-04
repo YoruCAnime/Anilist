@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.6
+// @version      1.5.7
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -48,6 +48,7 @@
 // 1.5.1: looks for a new version once an hour (was 6 h) and when the picker opens after that; Tampermonkey menu
 //        "Check for updates now"; version.json + the Update link read refs/heads/main (plain /main/ lags ~5 min).
 // 1.5.2: uploads are signed with the GitHub account's no-reply address (GitHub put its main email on API commits).
+// 1.5.7: AVIF pictures can be uploaded too (GitHub serves .avif as image/avif; Brave / Chrome / Firefox show them).
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -107,12 +108,12 @@
   const ghHeaders = c => ({ Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' });
   const ghJson = t => { try { return JSON.parse(t); } catch (e) { return {}; } };
   const ghPath = c => String(c.folder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/[^\w\/.-]+/g, '-');
-  const UP_TYPES = { 'image/gif': 'gif', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/x-m4v': 'm4v' };
+  const UP_TYPES = { 'image/gif': 'gif', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/avif': 'avif', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/x-m4v': 'm4v' };
   const UP_MAX = 25 * 1048576;
-  const PIC_EXT = /\.(gif|png|jpe?g|webp)$/i, VID_EXT = /\.(mp4|webm|m4v)$/i;
+  const PIC_EXT = /\.(gif|png|jpe?g|webp|avif)$/i, VID_EXT = /\.(mp4|webm|m4v)$/i;
   // AniList plays videos with webm( ), which takes mp4 too; browsers play mp4 (H.264) and webm
   const isVideoFile = f => /^video\/(mp4|webm|x-m4v)$/.test(f.type || '') || (!/^image\//.test(f.type || '') && VID_EXT.test(f.name || ''));
-  const isPicFile = f => /^image\/(gif|png|jpeg|webp)$/.test(f.type || '') || (!/^video\//.test(f.type || '') && PIC_EXT.test(f.name || ''));
+  const isPicFile = f => /^image\/(gif|png|jpeg|webp|avif)$/.test(f.type || '') || (!/^video\//.test(f.type || '') && PIC_EXT.test(f.name || ''));
 
   // checks the repo + token; fills in the branch; returns '' when fine, else what is wrong in plain words
   async function ghCheck(c) {
@@ -129,7 +130,7 @@
   }
 
   function fileName(file) {
-    const ext = UP_TYPES[file.type] || (String(file.name).match(/\.(gif|png|jpe?g|webp|mp4|webm|m4v)$/i) || [, 'gif'])[1].toLowerCase().replace('jpeg', 'jpg');
+    const ext = UP_TYPES[file.type] || (String(file.name).match(/\.(gif|png|jpe?g|webp|avif|mp4|webm|m4v)$/i) || [, 'gif'])[1].toLowerCase().replace('jpeg', 'jpg');
     const base = String(file.name || 'gif').replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'gif';
     return base + '-' + Date.now().toString(36) + '.' + ext;
   }
@@ -1130,7 +1131,7 @@
       }
 
       // one or several files (up to 20); several get the Layout switch (the same setting as Pick several's)
-      const input = el('input', { type: 'file', multiple: true, accept: vid ? 'video/mp4,video/webm,video/x-m4v,.mp4,.webm,.m4v' : 'image/gif,image/png,image/jpeg,image/webp', hidden: true });
+      const input = el('input', { type: 'file', multiple: true, accept: vid ? 'video/mp4,video/webm,video/x-m4v,.mp4,.webm,.m4v' : 'image/gif,image/png,image/jpeg,image/webp,image/avif,.avif', hidden: true });
       const choose = el('button', { class: 'gp-b gp-go', type: 'button', onclick: () => input.click() }, vid ? 'Choose videos' : 'Choose GIFs / pictures');
       const drop = el('div', { class: 'drop' });
       const go = el('button', { class: 'gp-b gp-go', type: 'button', hidden: true }, 'Upload and add');
@@ -1160,7 +1161,7 @@
         if (other.length) notes.push(other.length + (vid ? ' picture(s) left out: switch to GIF / picture for them' : ' video(s) left out: switch to Video for them'));
         if (big.length) notes.push(big.length === 1 ? big[0].name + ' is ' + mb(big[0].size) + ', over the 25 MB limit (make it smaller first)' : big.length + ' files over the 25 MB limit left out');
         if (fit.length > MAX_FILES) notes.push('only ' + MAX_FILES + ' at once');
-        if (all.length && !mine.length && !other.length) notes.push(vid ? 'That is not an MP4 / WebM video' : 'That is not a GIF / PNG / JPG / WebP picture');
+        if (all.length && !mine.length && !other.length) notes.push(vid ? 'That is not an MP4 / WebM video' : 'That is not a GIF / PNG / JPG / WebP / AVIF picture');
         say(notes.join(' · '), notes.length ? 'bad' : '');
         drop.textContent = '';
         go.hidden = !files.length;
