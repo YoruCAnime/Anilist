@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.2
+// @version      1.5.3
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -192,7 +192,8 @@
     for (let tries = 0; tries < 2; tries++) {
       const path = (dir ? dir + '/' : '') + (tries ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
       const r = await requestFull('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
-        method: 'PUT', headers: ghHeaders(c), timeout: 180000,
+        // 3 min, + 10 s per MB: a slow GitHub can take minutes and still save the file
+        method: 'PUT', headers: ghHeaders(c), timeout: 180000 + Math.round(b64.length * 0.75 / 1048576) * 10000,
         data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined, committer: who }),
       });
       const j = ghJson(r.text);
@@ -1161,7 +1162,15 @@
           try { if (have.length) sha = await blobSha(f); } catch (e) { /* no crypto here: upload */ }
           const same = sha && have.find(h => h.sha === sha);
           if (same) { done.push(Object.assign({}, same, { title: f.name || same.title })); reused++; continue; }
-          say('Uploading ' + (list.length > 1 ? (i + 1) + ' of ' + list.length + ' (' + mb(f.size) + ')' : mb(f.size)) + ' to GitHub…' + (f.size > 8 * 1048576 ? ' big files take a little while' : ''));
+          // a running count of seconds, so a slow GitHub (it took ~2 min for 1.5 MB on 2026-11-04) never looks stuck
+          const label = 'Uploading ' + (list.length > 1 ? (i + 1) + ' of ' + list.length + ' (' + mb(f.size) + ')' : mb(f.size)) + ' to GitHub…';
+          const t0 = Date.now();
+          const tick = () => {
+            const s = Math.round((Date.now() - t0) / 1000);
+            say(label + (s >= 3 ? ' ' + s + ' s' : '') + (s >= 20 ? ' (GitHub is slow right now, still going)' : f.size > 8 * 1048576 ? ' big files take a little while' : ''));
+          };
+          tick();
+          const ticker = setInterval(tick, 1000);
           try {
             const url = await ghUpload(conf, fileName(f), await readB64(f));
             done.push({ key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), video: vid, page: '', fresh: true });
@@ -1170,7 +1179,7 @@
             if (conf.shared && /not allowed to write/.test(m)) m += '. It is your GIF token: add ' + conf.repo + ' to it on GitHub, or paste a separate token (Change)';
             failed.push({ name: f.name || 'file', msg: m });
             if (/token|credentials|not allowed/i.test(m)) break; // a token problem would fail every one of them
-          }
+          } finally { clearInterval(ticker); }
         }
         go.disabled = false; choose.disabled = false;
         if (done.length > reused) delete upCache[upKey(conf, vid)];
