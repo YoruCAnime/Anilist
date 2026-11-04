@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.5
+// @version      1.5.6
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -193,31 +193,51 @@
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), o.timeout || 20000);
       let res;
+      const t0 = Date.now();
       try {
         res = await fetch(url, { method: o.method || 'GET', headers: o.headers, body: o.data, signal: ac.signal, credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer' });
       } catch (e) {
         clearTimeout(timer);
         if (e && e.name === 'AbortError') throw new Error('timed out');
         res = null; // blocked (CORS / site rules / extension): Tampermonkey's way below
+        upLog.directFail = (e && (e.name + ': ' + e.message)) || 'failed';
+        upLog.directFailMs = Date.now() - t0;
       }
       if (res) {
-        try { return { status: res.status, text: await res.text() }; } finally { clearTimeout(timer); }
+        try { const text = await res.text(); upLog.via = 'direct'; return { status: res.status, text }; } finally { clearTimeout(timer); }
       }
     }
+    upLog.via = 'tampermonkey';
     return requestFull(url, o);
+  }
+  // how long each step of the last upload took (Exos: "find it"): kept in this site's storage as gp-lastUpload
+  let upLog = {};
+  const upMark = (k, t0) => { upLog[k] = (upLog[k] || 0) + (Date.now() - t0); };
+  function upLogSave(extra) {
+    try {
+      const all = JSON.parse(localStorage.getItem('gp-lastUploads') || '[]');
+      all.unshift(Object.assign({ at: new Date().toISOString(), version: typeof GM_info !== 'undefined' && GM_info && GM_info.script ? GM_info.script.version : '' }, upLog, extra));
+      localStorage.setItem('gp-lastUploads', JSON.stringify(all.slice(0, 10)));
+    } catch (e) { /* storage full / off: only the console line */ }
+    try { console.info('[GIF Picker] upload timing (ms)', Object.assign({}, upLog, extra)); } catch (e) {}
   }
 
   // base64 of a file -> its raw.githubusercontent.com link
   async function ghUpload(c, name, b64) {
     const dir = ghPath(c);
+    let t0 = Date.now();
     const who = await ghCommitter(c);
+    upMark('lookupMs', t0);
     for (let tries = 0; tries < 2; tries++) {
+      t0 = Date.now();
       const path = (dir ? dir + '/' : '') + (tries ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
       const r = await ghSend('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
         // 3 min, + 10 s per MB: a slow GitHub can take minutes and still save the file
         method: 'PUT', headers: ghHeaders(c), timeout: 180000 + Math.round(b64.length * 0.75 / 1048576) * 10000,
         data: JSON.stringify({ message: 'Add ' + path.split('/').pop() + ' (AniList GIF Picker)', content: b64, branch: c.branch || undefined, committer: who }),
       });
+      upMark('sendMs', t0);
+      upLog.status = r.status;
       const j = ghJson(r.text);
       if (r.status === 201 || r.status === 200) return rawUrl(c, path);
       if (r.status === 422 && !tries) continue; // that name exists already: once more with a new name
@@ -1176,15 +1196,21 @@
         const list = files.slice(), conf = ghConf(kind);
         go.disabled = true; choose.disabled = true;
         const done = [], failed = [];
+        upLog = { files: list.length, bytes: list.reduce((a, f) => a + f.size, 0) };
+        const T = Date.now();
         // the same file already in the repo (from any device) is reused, not uploaded again
         say('Checking your repo…');
         let have = [];
+        let tl = Date.now();
         try { have = await upList(conf, vid); } catch (e) { /* cannot list: just upload */ }
+        upMark('listMs', tl);
         let reused = 0;
         for (let i = 0; i < list.length; i++) {
           const f = list[i];
           let sha = null;
+          tl = Date.now();
           try { if (have.length) sha = await blobSha(f); } catch (e) { /* no crypto here: upload */ }
+          upMark('shaMs', tl);
           const same = sha && have.find(h => h.sha === sha);
           if (same) { done.push(Object.assign({}, same, { title: f.name || same.title })); reused++; continue; }
           // a running count of seconds, so a slow GitHub (it took ~2 min for 1.5 MB on 2026-11-04) never looks stuck
@@ -1197,7 +1223,11 @@
           tick();
           const ticker = setInterval(tick, 1000);
           try {
-            const url = await ghUpload(conf, fileName(f), await readB64(f));
+            const fname = fileName(f);
+            tl = Date.now();
+            const b64 = await readB64(f);
+            upMark('readMs', tl);
+            const url = await ghUpload(conf, fname, b64);
             done.push({ key: 'up:' + url, src: 'upload', url, full: url, thumb: url, title: f.name || '', gif: /\.gif$/i.test(url), video: vid, page: '', fresh: true });
           } catch (e) {
             let m = e.message || 'Upload failed';
@@ -1207,9 +1237,11 @@
           } finally { clearInterval(ticker); }
         }
         go.disabled = false; choose.disabled = false;
+        upLog.totalMs = Date.now() - T;
         if (done.length > reused) delete upCache[upKey(conf, vid)];
-        if (!done.length) { say(failed.length ? failed[0].msg : 'Upload failed', 'bad'); return; }
-        say((done.length > reused ? 'Uploaded ' + (done.length - reused) : 'Already in your repo') + '. Adding to your comment…', 'good');
+        if (!done.length) { upLogSave({ error: failed.length ? failed[0].msg : 'Upload failed' }); say(failed.length ? failed[0].msg : 'Upload failed', 'bad'); return; }
+        upLogSave({});
+        say((done.length > reused ? 'Uploaded ' + (done.length - reused) + ' in ' + Math.max(1, Math.round(upLog.totalMs / 1000)) + ' s' : 'Already in your repo') + '. Adding to your comment…', 'good');
         // GitHub's raw links answer within seconds of the upload: wait briefly so the comment never gets a dead link
         await Promise.all(done.filter(it => it.fresh).map(async it => {
           for (let i = 0; i < 4; i++) { if (await loads(it.url + (i ? '?t=' + i : ''), vid)) return; await new Promise(r => setTimeout(r, 1500)); }
