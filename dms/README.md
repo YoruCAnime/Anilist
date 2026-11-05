@@ -9,7 +9,8 @@ Your private AniList message chats as DMs: a small chat button in the bottom-rig
 - Live preview while you type, emojis, GIFs, pictures, videos, YouTube, spoilers - just like AniList
 - Click a picture or video to see it big
 - Drag the top bar to move the chat, drag an edge to resize; click the top bar to hide it (the chat button brings it back)
-- Text size and sound in ⋯
+- Text size in ⋯
+- Pick your notification sound in ⋯: 3 built in, or **Add your own** (10 s and 2 MB at most; it stays in your browser)
 - Like, reply, edit and delete messages
 - **+** to add a chat (your message posts are listed, one click)
 - Works on every AniList page, PC and phone
