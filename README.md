@@ -9,6 +9,7 @@ by **YoruC**
 | **AniList GIF & Picture Picker** | PC + Firefox for Android (Tampermonkey) | [Guide + install](gif-picker) |
 | **AniList Like Previews** | PC (Chrome, Brave, Edge, Firefox + Tampermonkey) | [Guide + install](like-previews) |
 | **AniList DMs** | PC + Firefox for Android (Tampermonkey) | [Guide + install](dms) |
+| **watchreading** | Bio card (Cloudflare + Tampermonkey on PC) | [Guide + install](watchreading) |
 
 The Chat Compressors make long AniList reply threads open instantly: the newest messages first, in a compact
 chat view that checks for new messages by itself.
@@ -22,3 +23,5 @@ people liked as small cover squares.
 
 DMs puts your private AniList message chats behind a small chat button in the bottom-right corner of every
 page: newest messages first, a red number for new ones, live preview, likes, reply, edit and delete.
+
+watchreading is a "Currently Watching / Reading" card for your bio that updates itself.
