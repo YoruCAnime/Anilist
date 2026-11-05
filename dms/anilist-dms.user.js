@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.3.4
+// @version      1.3.5
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.3.4'; // the same as @version above
+  const VERSION = '1.3.5'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -351,7 +351,7 @@
   .adm-vol input[type=range] { flex: 1; accent-color: rgb(var(--color-blue)); }
   .adm-vol .adm-btn { padding: 2px 9px; }
   .adm-pick { flex-wrap: wrap; }
-  .adm-soundsel { flex: 1; min-width: 90px; font: inherit; font-size: 13px; padding: 2px 4px; border-radius: 6px; border: 1px solid rgba(var(--color-text), .18);
+  .adm-soundsel { flex: 1; min-width: 90px; max-width: 100%; font: inherit; font-size: 13px; padding: 2px 4px; border-radius: 6px; border: 1px solid rgba(var(--color-text), .18);
     background: rgb(var(--color-background)); color: rgb(var(--color-text)); }
   .adm-soundnote { font-size: 12px; }
 
@@ -666,10 +666,42 @@
       };
     });
   }
+  // Shared sounds: every sound file at the top of this public repo shows in everyone's list. The files are only ever
+  // played as sound. Its list is asked for when the options open, at most once an hour (shared by every AniList tab).
+  const DROPBOX = 'j35draaken-ui/Yoru_dropbox';
+  // the two clips the built-in sounds were cut from: same sounds, not listed twice
+  const DROP_SKIP = new Set(['3012e107acee2e535c374f16de8f8a2ca50b3bb3', '1211bc43ebbb36df550459212e38e53edcc67c02']);
+  const dropSounds = () => (store.get('adm:drop', {}).list || []);
+  const dropUrl = name => 'https://raw.githubusercontent.com/' + DROPBOX + '/HEAD/' + encodeURIComponent(name);
+  async function checkDropbox() {
+    const d = store.get('adm:drop', {});
+    if (d.at && Date.now() - d.at < 3600e3) return;
+    store.set('adm:drop', Object.assign(d, { at: Date.now() })); // the other tabs don't ask too
+    try {
+      const r = await fetch('https://api.github.com/repos/' + DROPBOX + '/contents', { cache: 'no-store', credentials: 'omit' });
+      if (!r.ok) return;
+      const files = await r.json();
+      const list = files.filter(f => f && f.type === 'file' && /\.(mp3|m4a|aac|ogg|opus|wav|flac)$/i.test(f.name) && f.size <= SOUND_MAX_MB * 1048576 && !DROP_SKIP.has(f.sha))
+        .slice(0, 50).map(f => f.name);
+      store.set('adm:drop', { at: d.at, list });
+      if (ui.open && !T && listState.menu) renderList();
+    } catch (e) {}
+  }
+  const dropTitle = name => name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || name;
+  // what is picked, if it is still there; otherwise the default
+  function pickNow() {
+    const p = String(ui.soundPick || 'new');
+    if (p === 'old' || p === 'cat') return p;
+    if (p.startsWith('u:') && ownSounds().some(x => x.id === p.slice(2))) return p;
+    if (p.startsWith('d:') && dropSounds().includes(p.slice(2))) return p;
+    return 'new';
+  }
   const nyaAudio = {};
+  let nyaStop = 0;
   async function soundAudio(pick) {
     if (nyaAudio[pick]) return nyaAudio[pick];
     let src = pick === 'old' ? NYA_OLD : pick === 'cat' ? NYA_CAT : NYA;
+    if (pick.startsWith('d:')) src = dropUrl(pick.slice(2));
     if (pick.startsWith('u:')) {
       const f = await soundFiles('readonly', st => st.get(pick.slice(2)));
       if (f && f.blob) src = URL.createObjectURL(f.blob); else pick = 'new'; // removed in another tab: the default
@@ -682,10 +714,15 @@
     // only one AniList tab says it, and not twice for the same message
     if (!force) { if (Date.now() - store.get('adm:nyaAt', 0) < 2500) return; store.set('adm:nyaAt', Date.now()); }
     try {
-      const a = await soundAudio(String(ui.soundPick || 'new'));
+      const pick = pickNow(), a = await soundAudio(pick);
       a.volume = Math.max(0, Math.min(1, +ui.volume || 0));
       a.currentTime = 0;
-      a.play().catch(() => {}); // the browser may refuse sound in a tab you never clicked in
+      clearTimeout(nyaStop); nyaStop = setTimeout(() => a.pause(), SOUND_MAX_S * 1000); // a long shared sound stops here
+      a.play().catch(() => { // the browser may refuse sound in a tab you never clicked in
+        if (!a.error || pick === 'new') return;
+        delete nyaAudio[pick]; // could not load it (no connection, removed): the default this time
+        soundAudio('new').then(d => { d.volume = a.volume; d.currentTime = 0; d.play().catch(() => {}); });
+      });
     } catch (e) {}
   }
   // can this browser play it, and how long is it?
@@ -833,6 +870,7 @@
     bodyEl.textContent = '';
     const list = el('div', { class: 'adm-list' });
     if (listState.menu) {
+      checkDropbox();
       const tick = (key, label) => el('label', {}, el('input', { type: 'checkbox', checked: ui[key], onchange: e => { ui[key] = e.target.checked; saveUi(); } }), label);
       list.append(el('div', { class: 'adm-menu' },
         tick('enterSends', 'Enter sends (Shift+Enter = new line). Off: Ctrl+Enter sends'),
@@ -849,10 +887,12 @@
             'Sound for new messages ("…nya.")'),
           el('div', { class: 'adm-vol adm-pick' }, 'Sound',
             el('select', { class: 'adm-soundsel', title: 'The sound for new messages', onchange: e => { ui.soundPick = e.target.value; saveUi(); soundNote = null; nya(true); renderList(); } },
-              [['new', 'Nya'], ['old', 'Nya (old)'], ['cat', 'Anime cat girl']].concat(ownSounds().map(x => ['u:' + x.id, x.name])).map(([v, name]) =>
-                el('option', { value: v, selected: (ownSounds().some(x => 'u:' + x.id === ui.soundPick) || ui.soundPick === 'old' || ui.soundPick === 'cat' ? ui.soundPick : 'new') === v }, name))),
+              [['Built in', [['new', 'Nya (Cute Anime Girl Noise)'], ['old', 'Nya (old)'], ['cat', 'Anime cat girl']]],
+               ['Shared', dropSounds().map(n => ['d:' + n, dropTitle(n)])],
+               ['Yours', ownSounds().map(x => ['u:' + x.id, x.name])]].filter(g => g[1].length).map(([label, opts]) =>
+                el('optgroup', { label }, opts.map(([v, name]) => el('option', { value: v, selected: pickNow() === v }, name))))),
             el('button', { class: 'adm-btn adm-soundadd', type: 'button', title: 'Add a sound from this device (' + SOUND_MAX_S + ' s, ' + SOUND_MAX_MB + ' MB at most). It stays in this browser.', onclick: chooseOwnSound }, 'Add your own'),
-            String(ui.soundPick).startsWith('u:') && ownSounds().some(x => 'u:' + x.id === ui.soundPick)
+            pickNow().startsWith('u:')
               ? el('button', { class: 'adm-btn adm-soundrem', type: 'button', title: 'Remove this sound', onclick: () => removeOwnSound(ui.soundPick.slice(2)) }, 'Remove') : null),
           soundNote ? el('div', { class: 'adm-note adm-soundnote' + (soundNote.bad ? ' adm-bad' : ''), style: 'margin-left:22px' }, soundNote.text) : null,
           el('div', { class: 'adm-vol' }, 'Volume',
@@ -1650,7 +1690,7 @@
     else if (e.key === 'adm:info') info = store.get('adm:info', info);
     else if (e.key === 'adm:upd') { upd = store.get('adm:upd', upd); renderHead(); return; }
     else if (e.key === 'adm:ui') { const u = store.get('adm:ui', {}); ui.sound = u.sound; ui.soundPick = u.soundPick; ui.volume = u.volume; return; }
-    else if (e.key === 'adm:sounds') { /* the list below redraws with the new names */ }
+    else if (e.key === 'adm:sounds' || e.key === 'adm:drop') { /* the list below redraws with the new names */ }
     else if (e.key.startsWith('adm:m:')) { if (T && e.key === 'adm:m:' + T.id && changedOutside(T)) refreshOpen(T, true); }
     else return;
     renderBadge();
