@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.3.6
+// @version      1.3.7
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.3.6'; // the same as @version above
+  const VERSION = '1.3.7'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -356,7 +356,7 @@
   .adm-soundnote { font-size: 12px; }
 
   .adm-convo { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-  .adm-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 8px 10px 6px; }
+  .adm-scroll { flex: 1 1 0; min-height: 70px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 10px 6px; }
   .adm-older { display: flex; justify-content: center; gap: 6px; margin: 2px 0 8px; }
   .adm-older .adm-btn { font-size: 12px; padding: 4px 11px; border-radius: 14px; }
   .adm-status { text-align: center; font-size: 12px; opacity: .65; margin: 4px 0; }
@@ -422,7 +422,10 @@
   .adm-newpill { position: absolute; left: 50%; transform: translateX(-50%); bottom: 8px; z-index: 3; border: 0; border-radius: 14px; padding: 5px 13px;
     background: rgb(var(--color-blue)); color: #fff; font: 600 12.5px Overpass, sans-serif; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,.35); }
   .adm-newpill[hidden] { display: none; }
-  .adm-compose { flex: none; padding: 6px 10px 9px; background: rgb(var(--color-background)); position: relative; }
+  .adm-compose { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 6px 10px 9px; background: rgb(var(--color-background)); position: relative; }
+  .adm-compose > .adm-tools, .adm-compose > .adm-send-row { flex: none; }
+  .adm-compose > .adm-ta { flex: 0 1 auto; }
+  .adm-compose > .adm-preview { flex: 0 1 auto; min-height: 48px; }
   .adm-tools.markdown-editor { display: flex !important; flex-wrap: wrap; gap: 3px; margin: 0 0 5px !important; padding: 0 !important; grid-template-columns: none !important; }
   .adm-tools > * { flex: none; }
   .adm-tb { min-width: 28px; height: 26px; padding: 0 6px; font: 600 12.5px/26px Overpass, sans-serif; cursor: pointer; border-radius: 5px;
@@ -461,7 +464,7 @@
   @media (max-width: 760px) {
     .adm-root { right: 12px; bottom: 66px; }
     .adm-launch { width: 42px; height: 42px; }
-    .adm-panel, .adm-big .adm-panel { position: fixed; left: 6px; right: 6px; top: 56px; bottom: 116px; width: auto; height: auto; }
+    .adm-panel, .adm-big .adm-panel { position: fixed; left: 6px; right: 6px; top: 56px; bottom: max(116px, calc(var(--adm-kb, 0px) + 6px)); width: auto; height: auto; }
     .adm-rz { display: none; }
     .adm-b { max-width: 88%; }
   }`;
@@ -493,6 +496,14 @@
     panel = el('div', { class: 'adm-panel', hidden: true }, headEl, bodyEl);
     rootEl = el('div', { class: 'adm-root' + (ui.big ? ' adm-big' : '') + (ui.min ? ' adm-min' : '') }, panel, launch);
     rootEl.style.setProperty('--adm-fs', ui.textSize || 1);
+    // phones: the on-screen keyboard covers the page without resizing it, so the chat moves up by what it hides
+    if (window.visualViewport && !rootEl._kbFit) {
+      const vv = window.visualViewport;
+      rootEl._kbFit = () => { const kb = Math.round(window.innerHeight - vv.height - vv.offsetTop); rootEl.style.setProperty('--adm-kb', (kb > 60 ? kb : 0) + 'px'); };
+      vv.addEventListener('resize', rootEl._kbFit);
+      vv.addEventListener('scroll', rootEl._kbFit);
+      rootEl._kbFit();
+    }
     // a click on the top bar (not on its buttons) folds the panel down to the bar / opens it again; dragging it moves it
     headEl.addEventListener('click', e => { if (!dragMoved && !e.target.closest('button, a, input')) setMin(!ui.min); });
     headEl.addEventListener('pointerdown', e => { if (!e.target.closest('button, a, input')) startDrag(e, 'move'); });
