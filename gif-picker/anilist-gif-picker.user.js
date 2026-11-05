@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.7
+// @version      1.5.8
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -49,6 +49,7 @@
 //        "Check for updates now"; version.json + the Update link read refs/heads/main (plain /main/ lags ~5 min).
 // 1.5.2: uploads are signed with the GitHub account's no-reply address (GitHub put its main email on API commits).
 // 1.5.7: AVIF pictures can be uploaded too (GitHub serves .avif as image/avif; Brave / Chrome / Firefox show them).
+// 1.5.8: Spoiler with Under each other: all of them share ONE spoiler, still one per line (it was one spoiler each).
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -278,6 +279,7 @@
   // A video is { url, video: true } and becomes webm(link) (AniList has no width for videos).
   // Side by side (measured with AniList's own formatter, comments 300-700 px wide):
   // - each ~! !~ becomes its own paragraph, so a group shares ONE spoiler, or every picture sat on its own line;
+  // - Under each other shares one spoiler too: a line break inside it stays a <br> (AniList: p(img br img), 2026-11-05);
   // - pictures too wide to sit next to each other (Original GIFs are ~500 px, a comment ~620) get a share of the
   //   row instead: 2 per row (also for 4), else 3 per row, at 49 % / 32 % (46 % / 30 % inside a spoiler's padding).
   function aniCode(urls, o) {
@@ -297,9 +299,9 @@
     let all;
     if (side) {
       all = items.map((it, i) => (i ? (it.yt || items[i - 1].yt ? '\n' : ' ') : '') + one(it)).join('');
-      if (o.spoiler) all = '~!' + all + '!~';
     }
-    else all = items.map(it => (o.spoiler ? '~!' + one(it) + '!~' : one(it))).join('\n');
+    else all = items.map(one).join('\n');
+    if (o.spoiler) all = '~!' + all + '!~';
     return o.center ? (o.spoiler ? '~~~ ' + all + ' ~~~' : '~~~' + all + '~~~') : all;
   }
 
