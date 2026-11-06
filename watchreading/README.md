@@ -42,6 +42,9 @@ Copy the line from your check page into **AniList → Settings → Profile → A
 
 Done. The card now follows your list about 2 seconds after each change, while AniList is open on your computer.
 
+**On a phone** (Firefox for Android): **⋮ → Add-ons**, add Tampermonkey, then do step 2 there. The script's menu is
+under **⋮ → Add-ons → Tampermonkey**. It sends while anilist.co is open in front; for changes made in apps use step 4.
+
 ## 4. Update with your PC off (optional)
 
 A free GitHub job updates the card every 30 minutes, which also catches changes from your phone.
@@ -73,6 +76,7 @@ Open your check page first: a red line says what's missing.
 | **"wrong key"** | The key must match exactly in Cloudflare, Tampermonkey and GitHub. |
 | "Waiting for the first update" | Open AniList with the script on, or run the GitHub job. |
 | No setup boxes on AniList | Tampermonkey icon → **watchreading: settings**. |
+| **Cloudflare error** / "Cloudflare answered 404" | The card's address is wrong (often a space or typo from a phone keyboard). Open it in the browser: it must show your check page. Then **watchreading: settings** again. |
 | Wrong day on TODAY | On the Worker, add a Text variable `TIMEZONE`, e.g. `Europe/London`. |
 
 **Set up before 23 Oct 2026?** Click the install link again and press **Update**. If you did step 4, replace your `sync/sync.mjs` too.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         watchreading - AniList bio card sync
 // @namespace    watchreading
-// @version      1.2.0
+// @version      1.2.1
 // @description  Sends your Watching / Rewatching anime and Reading / Rereading manga to your watchreading card a few seconds after you update AniList.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -33,6 +33,8 @@
 //
 // 1.2.0: "watched / read today" and the order follow when you last watched or read each show (your newest
 // list activity for it). Changing only a score or notes no longer marks a show as watched today.
+// 1.2.1: phones: spaces and capitals that phone keyboards add to the address and key are cleaned up, and a failed
+// send says what Cloudflare / the Worker actually answered (wrong key, wrong address, not deployed ...).
 (function () {
   'use strict';
   const CHECK_EVERY = 60 * 1000;
@@ -53,10 +55,26 @@
     coverImage{large} nextAiringEpisode{episode airingAt}}}`;
 
   const cfg = () => GM_getValue('cfg', null);
-  const gm = o => new Promise((ok, bad) => GM_xmlhttpRequest({ timeout: 30000, ...o, onload: ok, onerror: bad, ontimeout: bad }));
+  const host = u => (String(u).match(/^https?:\/\/([^/?#]+)/i) || [])[1] || String(u);
+  const gm = o => new Promise((ok, bad) => GM_xmlhttpRequest({ timeout: 30000, ...o, onload: ok,
+    onerror: r => bad(new Error('could not reach ' + host(o.url) + (r && r.error ? ' (' + r.error + ')' : '') +
+      '. Check the address, and that Tampermonkey is allowed to connect to it')),
+    ontimeout: () => bad(new Error(host(o.url) + ' did not answer in time')) }));
   const parse = r => (typeof r.response === 'string' ? JSON.parse(r.response) : r.response);
 
   const errText = j => (j && j.errors ? ': ' + j.errors.map(e => e.message).join('; ') : '');
+
+  // What went wrong, in words, when the Worker's address did not give the Worker's normal answer.
+  function workerTrouble(r) {
+    const t = String(r.responseText || '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/^wrong key$/i.test(t) || (r.status === 403 && !t))
+      return 'the Worker says "wrong key". Type the key again exactly as in Cloudflare (phone keyboards like to make the first letter a capital)';
+    if (/^(error: |The database|The secret)/.test(t)) return 'the Worker answered: ' + t.slice(0, 200);
+    const code = (t.match(/error(?: code)?:?\s*(1\d{3})/i) || [])[1];
+    return 'Cloudflare answered ' + r.status + (code ? ' (error ' + code + ')' : '') + ' instead of your card. ' +
+      'The address is probably not right, or the Worker is not deployed: open the address in the browser, it should show the ' +
+      'watchreading check page' + (t && !code ? '. It said: ' + t.slice(0, 120) : '');
+  }
 
   // AniList's API. Returns null when the API is switched off or down (then the website is asked instead).
   async function askApi(body) {
@@ -171,10 +189,10 @@
       const sig = JSON.stringify([c.worker, color, list.slice(0, 30).map(i => [i.id, i.progress, i.updatedAt, i.episodes, i.listStatus, i.next && i.next.at])]);
       if (!force && sig === GM_getValue('sig', '') && Date.now() - GM_getValue('sent', 0) < RESEND_AFTER) return 'unchanged';
       const r = await gm({ method: 'POST', url: c.worker + '/update', headers: { 'Content-Type': 'application/json', ...auth },
-        data: JSON.stringify({ list, by: 'browser', profileColor: color, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }), responseType: 'json' });
-      if (r.status === 403) throw new Error('the Worker says "wrong key"');
-      const res = parse(r);
-      if (r.status !== 200 || !res || !res.ok) throw new Error('the Worker answered ' + r.status);
+        data: JSON.stringify({ list, by: 'browser', profileColor: color, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
+      let res = null;
+      try { res = JSON.parse(r.responseText); } catch (e) {}
+      if (r.status !== 200 || !res || !res.ok) throw new Error(workerTrouble(r));
       let covers = 0;
       for (const id of res.missing || []) {
         const it = list.find(i => i.id === id);
@@ -185,6 +203,7 @@
         const up = await gm({ method: 'POST', url: c.worker + '/cover?id=' + id, headers: { 'Content-Type': 'text/plain', ...auth },
           data: 'data:' + type + ';base64,' + toB64(img.response) });
         if (up.status === 200) covers++;
+        else if (up.status === 403) throw new Error(workerTrouble(up));
       }
       GM_setValue('sig', sig); GM_setValue('sent', Date.now());
       console.debug('[watchreading] sent', list.length, 'shows,', covers, 'new covers');
@@ -205,13 +224,15 @@
     const guessUser = (location.pathname.match(/^\/user\/([^/]+)/) || [])[1] || '';
     let worker = prompt('watchreading (1/3)\n\nYour card\'s address (your Cloudflare Worker), e.g.\nhttps://watchreading.yourname.workers.dev', c.worker || '');
     if (worker === null) return;
-    worker = worker.trim().replace(/\/+$/, '').replace(/\/(card(\.svg)?|status)$/, '');
-    if (!/^https:\/\/[^\s/]+$/.test(worker)) { alert('watchreading: that does not look like an address (it should start with https:// ).'); return; }
-    const key = prompt('watchreading (2/3)\n\nYour secret key (the PUSH_KEY you saved in Cloudflare):', c.key || '');
-    if (key === null || !key.trim()) return;
-    const user = prompt('watchreading (3/3)\n\nYour AniList user name:', c.user || guessUser);
-    if (user === null || !user.trim()) return;
-    GM_setValue('cfg', { worker, key: key.trim(), user: user.trim() });
+    // phone keyboards: no spaces ("yourname. workers. dev"), no capital "Https", no "http://"
+    worker = worker.replace(/\s+/g, '').replace(/^(https?:\/\/)?/i, 'https://').replace(/[?#].*$/, '')
+      .replace(/\/+$/, '').replace(/\/(card(\.svg)?|status)$/i, '').toLowerCase();
+    if (!/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(worker)) { alert('watchreading: that does not look like an address, e.g. https://watchreading.yourname.workers.dev'); return; }
+    let key = prompt('watchreading (2/3)\n\nYour secret key (the PUSH_KEY you saved in Cloudflare):', c.key || '');
+    if (key === null || !(key = key.replace(/\s+/g, ''))) return;
+    let user = prompt('watchreading (3/3)\n\nYour AniList user name:', c.user || guessUser);
+    if (user === null || !(user = user.replace(/\s+/g, ''))) return;
+    GM_setValue('cfg', { worker, key, user });
     GM_setValue('sig', '');
     try {
       const msg = await sync(true, true);
