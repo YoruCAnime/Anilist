@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         watchreading - AniList bio card sync
 // @namespace    watchreading
-// @version      1.2.1
+// @version      1.2.2
 // @description  Sends your Watching / Rewatching anime and Reading / Rereading manga to your watchreading card a few seconds after you update AniList.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -35,6 +35,9 @@
 // list activity for it). Changing only a score or notes no longer marks a show as watched today.
 // 1.2.1: phones: spaces and capitals that phone keyboards add to the address and key are cleaned up, and a failed
 // send says what Cloudflare / the Worker actually answered (wrong key, wrong address, not deployed ...).
+// 1.2.2: when sending fails, a small note at the bottom of AniList says why (tap it to fix the settings),
+// because on a phone nobody sees the browser console. Settings saved by older versions are cleaned up too.
+// New menu entry "watchreading: status".
 (function () {
   'use strict';
   const CHECK_EVERY = 60 * 1000;
@@ -55,6 +58,16 @@
     coverImage{large} nextAiringEpisode{episode airingAt}}}`;
 
   const cfg = () => GM_getValue('cfg', null);
+  // phone keyboards: no spaces ("yourname. workers. dev"), no capital "Https", no "http://"
+  const cleanWorker = w => String(w || '').replace(/\s+/g, '').replace(/^(https?:\/\/)?/i, 'https://').replace(/[?#].*$/, '')
+    .replace(/\/+$/, '').replace(/\/(card(\.svg)?|status)$/i, '').toLowerCase();
+  const noSpace = v => String(v || '').replace(/\s+/g, '');
+  (() => {                                                       // settings typed into an older version
+    const c = cfg();
+    if (!c) return;
+    const n = { worker: cleanWorker(c.worker), key: noSpace(c.key), user: noSpace(c.user) };
+    if (n.worker !== c.worker || n.key !== c.key || n.user !== c.user) GM_setValue('cfg', n);
+  })();
   const host = u => (String(u).match(/^https?:\/\/([^/?#]+)/i) || [])[1] || String(u);
   const gm = o => new Promise((ok, bad) => GM_xmlhttpRequest({ timeout: 30000, ...o, onload: ok,
     onerror: r => bad(new Error('could not reach ' + host(o.url) + (r && r.error ? ' (' + r.error + ')' : '') +
@@ -207,9 +220,13 @@
       }
       GM_setValue('sig', sig); GM_setValue('sent', Date.now());
       console.debug('[watchreading] sent', list.length, 'shows,', covers, 'new covers');
-      return `sent ${list.length} shows and ${covers} new covers`;
+      const msg = `sent ${list.length} shows and ${covers} new covers`;
+      result(true, msg);
+      return msg;
     } catch (e) {
-      console.debug('[watchreading]', e && e.message || e);
+      const msg = e && e.message || String(e);
+      console.debug('[watchreading]', msg);
+      result(false, msg, urgent || force);
       if (force) throw e;
       return null;
     } finally {
@@ -218,20 +235,56 @@
     }
   }
 
+  // ---------------------------------------------------------------- telling you when it fails
+  // On a phone there is no console to look in, so a failed send shows a small note at the bottom of the page
+  // (right after a save, or the second failure in a row). Tap it to open the settings, x to close it.
+  let fails = 0, note = null;
+  function result(ok, msg, urgent) {
+    GM_setValue('last', { at: Date.now(), ok, msg });
+    if (ok) { fails = 0; if (note) { note.remove(); note = null; } return; }
+    if (++fails >= 2 || urgent) showNote('watchreading could not update your card: ' + msg + '. Tap here to check the settings.');
+  }
+  function showNote(text) {
+    if (!document.body) return;
+    if (!note) {
+      note = document.createElement('div');
+      note.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483647;max-width:560px;margin:0 auto;' +
+        'padding:10px 34px 10px 12px;border-radius:8px;background:#e13333;color:#fff;font:14px/1.4 sans-serif;' +
+        'box-shadow:0 2px 10px rgba(0,0,0,.4);cursor:pointer;word-break:break-word';
+      const t = document.createElement('span'), x = document.createElement('b');
+      x.textContent = '×';
+      x.style.cssText = 'position:absolute;top:4px;right:10px;font-size:22px;line-height:1;padding:4px';
+      note.append(t, x);
+      note.addEventListener('click', e => {
+        e.stopPropagation();
+        note.remove(); note = null;
+        if (e.target !== x) settings();
+      });
+    }
+    note.firstChild.textContent = text;
+    if (!note.isConnected) document.body.appendChild(note);
+  }
+  function status() {
+    const c = cfg(), l = GM_getValue('last', null);
+    const ago = l ? Math.round((Date.now() - l.at) / 60000) : 0;
+    alert('watchreading ' + GM_info.script.version + '\n\n' +
+      (c ? 'Card: ' + c.worker + '\nAniList name: ' + c.user + '\nKey: ' + c.key.length + ' characters, starts with "' + c.key[0] + '"'
+         : 'Not set up yet: use "watchreading: settings".') +
+      '\n\nLast try: ' + (l ? (ago < 1 ? 'just now' : ago + ' min ago') + ', ' + (l.ok ? 'OK, ' : 'FAILED: ') + l.msg : 'none yet on this device'));
+  }
+
   // ---------------------------------------------------------------- settings
   async function settings() {
     const c = cfg() || {};
     const guessUser = (location.pathname.match(/^\/user\/([^/]+)/) || [])[1] || '';
     let worker = prompt('watchreading (1/3)\n\nYour card\'s address (your Cloudflare Worker), e.g.\nhttps://watchreading.yourname.workers.dev', c.worker || '');
     if (worker === null) return;
-    // phone keyboards: no spaces ("yourname. workers. dev"), no capital "Https", no "http://"
-    worker = worker.replace(/\s+/g, '').replace(/^(https?:\/\/)?/i, 'https://').replace(/[?#].*$/, '')
-      .replace(/\/+$/, '').replace(/\/(card(\.svg)?|status)$/i, '').toLowerCase();
+    worker = cleanWorker(worker);
     if (!/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(worker)) { alert('watchreading: that does not look like an address, e.g. https://watchreading.yourname.workers.dev'); return; }
     let key = prompt('watchreading (2/3)\n\nYour secret key (the PUSH_KEY you saved in Cloudflare):', c.key || '');
-    if (key === null || !(key = key.replace(/\s+/g, ''))) return;
+    if (key === null || !(key = noSpace(key))) return;
     let user = prompt('watchreading (3/3)\n\nYour AniList user name:', c.user || guessUser);
-    if (user === null || !(user = user.replace(/\s+/g, ''))) return;
+    if (user === null || !(user = noSpace(user))) return;
     GM_setValue('cfg', { worker, key, user });
     GM_setValue('sig', '');
     try {
@@ -243,6 +296,7 @@
     }
   }
   GM_registerMenuCommand('watchreading: settings', settings);
+  GM_registerMenuCommand('watchreading: status', status);
   GM_registerMenuCommand('watchreading: send now', () => sync(true, true).then(m => alert('watchreading: ' + (m || 'sent'))).catch(e => alert('watchreading: ' + (e && e.message || e))));
 
   // ---------------------------------------------------------------- notice AniList's own saves

@@ -44,6 +44,7 @@ Done. The card now follows your list about 2 seconds after each change, while An
 
 **On a phone** (Firefox for Android): **⋮ → Add-ons**, add Tampermonkey, then do step 2 there. The script's menu is
 under **⋮ → Add-ons → Tampermonkey**. It sends while anilist.co is open in front; for changes made in apps use step 4.
+If sending fails, a red note at the bottom of AniList says why. **watchreading: status** shows the last try.
 
 ## 4. Update with your PC off (optional)
 
