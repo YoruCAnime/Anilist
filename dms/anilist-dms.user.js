@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.3.7
+// @version      1.4.0
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.3.7'; // the same as @version above
+  const VERSION = '1.4.0'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -409,6 +409,9 @@
   .adm-act.adm-own { display: none; }
   .adm-mine .adm-act.adm-own { display: inline; }
   .adm-act.adm-del:hover { color: rgb(var(--color-red)); }
+  .adm-hb.adm-live { opacity: .55; }
+  .adm-hb.adm-live.adm-on { opacity: 1; color: #f5c542; }
+  .adm-livemsg .adm-b { box-shadow: inset 0 0 0 1px rgba(245, 197, 66, .35); }
   .adm-heart { position: absolute; bottom: -9px; font-size: 11px; padding: 0 6px; border-radius: 10px; line-height: 17px; cursor: pointer;
     background: rgb(var(--color-background)); box-shadow: 0 1px 4px rgba(0,0,0,.3); color: rgb(var(--color-red)); white-space: nowrap; }
   .adm-m:not(.adm-mine) .adm-heart { right: 8px; }
@@ -796,7 +799,7 @@
   // load (what came while you were away just shows the red number).
   let soundReady = false;
   function announce(id, msgs) {
-    const top = (msgs || []).filter(m => m.uid && m.uid !== me).reduce((x, m) => Math.max(x, m.id), 0);
+    const top = (msgs || []).filter(m => m.uid && m.uid !== me && !isKeyMsg(m)).reduce((x, m) => Math.max(x, m.id), 0); // the hidden live key makes no sound
     if (!top) return;
     const heard = store.get('adm:heard', {});
     const prev = heard[id];
@@ -804,6 +807,279 @@
     heard[id] = top; store.set('adm:heard', heard);
     if (prev && soundReady) nya();
   }
+
+  // ---- live chat (1.4.0) -------------------------------------------------------------------
+  // A private chat can go live: messages travel through Firebase at once (no AniList cooldown), scrambled with a key
+  // that only exists inside the private AniList chat itself (one reply holding "dmslive:<key>", hidden here), so
+  // Firebase only ever holds scrambled text under a room name made from that key. Once a day one of the two plugins
+  // copies the live messages into the AniList chat as one reply and deletes them from Firebase.
+  const FB = { key: 'AIzaSyAY7BQxQuq3PiglS475Qj3Oqwv1NOHzCLU', db: 'https://yoru-dms-default-rtdb.europe-west1.firebasedatabase.app' };
+  const LIVE_RE = /dmslive:([A-Za-z0-9_-]{43})/;
+  const LIVE_CHUNK = 3000, LIVE_MAX = 20000;
+  const liveDay = () => +store.get('adm:testCopyMs', 0) || 24 * 3600e3; // a day between copies (tests shorten it)
+  const isKeyMsg = m => !!(m && typeof m.md === 'string' && LIVE_RE.test(m.md));
+  const liveWait = ms => new Promise(r => setTimeout(r, ms));
+  function b64e(u8) { let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function b64d(str) { const s = str.replace(/-/g, '+').replace(/_/g, '/'); const b = atob(s + '='.repeat((4 - s.length % 4) % 4)); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  const liveKeyRaw = id => store.get('adm:lk:' + id, '');
+  const liveOn = id => !!liveKeyRaw(id) && !store.get('adm:liveoff:' + id, false);
+
+  // an anonymous Firebase sign-in for this browser (no account; kept and refreshed here)
+  let fbBusy = null;
+  async function fbToken() {
+    const a = store.get('adm:fb', null);
+    if (a && a.tok && a.exp - Date.now() > 120e3) return a;
+    if (fbBusy) return fbBusy;
+    fbBusy = (async () => {
+      let r, j;
+      if (a && a.ref) {
+        r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + FB.key, { method: 'POST', credentials: 'omit',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(a.ref) });
+        if (r.ok) { j = await r.json(); const n = { uid: j.user_id, tok: j.id_token, ref: j.refresh_token, exp: Date.now() + (+j.expires_in || 3600) * 1000 }; store.set('adm:fb', n); return n; }
+      }
+      r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FB.key, { method: 'POST', credentials: 'omit',
+        headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+      if (!r.ok) throw new Error('live chat sign-in failed (' + r.status + ')');
+      j = await r.json();
+      const n = { uid: j.localId, tok: j.idToken, ref: j.refreshToken, exp: Date.now() + (+j.expiresIn || 3600) * 1000 };
+      store.set('adm:fb', n);
+      return n;
+    })();
+    try { return await fbBusy; } finally { fbBusy = null; }
+  }
+  async function fbReq(path, method, body) {
+    const a = await fbToken();
+    return fetch(FB.db + path + '.json?auth=' + encodeURIComponent(a.tok), { method: method || 'GET', credentials: 'omit', cache: 'no-store',
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : undefined });
+  }
+
+  // the key, the scrambling and the room name
+  const liveKeys = {};
+  async function liveKeyOf(id) {
+    const raw = liveKeyRaw(id);
+    if (!raw) return null;
+    if (liveKeys[id] && liveKeys[id].raw === raw) return liveKeys[id];
+    const key = await crypto.subtle.importKey('raw', b64d(raw), 'AES-GCM', false, ['encrypt', 'decrypt']);
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('dms-room:' + raw)));
+    const room = Array.from(h.slice(0, 16), b => b.toString(16).padStart(2, '0')).join('');
+    return (liveKeys[id] = { raw, key, room });
+  }
+  async function liveSeal(k, obj) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const c = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k.key, new TextEncoder().encode(JSON.stringify(obj))));
+    return { c: b64e(c), v: b64e(iv) };
+  }
+  const liveOpened = new Map(); // firebase key -> { c, o } (no second unscrambling of the same message)
+  async function liveOpen(k, key, rec) {
+    const hit = liveOpened.get(key);
+    if (hit && hit.c === rec.c) return hit.o;
+    try {
+      const p = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(rec.v) }, k.key, b64d(rec.c));
+      const o = JSON.parse(new TextDecoder().decode(p));
+      liveOpened.set(key, { c: rec.c, o });
+      return o;
+    } catch (e) { return null; }
+  }
+  const liveMsg = (key, tms, o) => ({ id: 'L' + key, live: true, tms, t: Math.floor(tms / 1000), uid: +o.u || 0, name: String(o.n || '?'),
+    av: String(o.a || ''), md: String(o.x || ''), html: '', likes: 0, liked: false, likers: [] });
+  async function liveDecode(k, data) {
+    const out = [];
+    for (const [key, rec] of Object.entries(data || {})) {
+      if (!rec || typeof rec.c !== 'string' || typeof rec.v !== 'string') continue;
+      const o = await liveOpen(k, key, rec);
+      if (o) out.push(liveMsg(key, +rec.t || Date.now(), o));
+    }
+    return out.sort((a, b) => a.tms - b.tms || (a.id < b.id ? -1 : 1));
+  }
+  // the live messages of a chat, shared by every AniList tab
+  function liveMsgsOf(id) {
+    const c = store.get('adm:lm:' + id, null);
+    return c && c.k === liveKeyRaw(id) ? (c.msgs || []) : [];
+  }
+  function liveStore(id, msgs) {
+    msgs = msgs.slice(-200);
+    store.set('adm:lm:' + id, { k: liveKeyRaw(id), msgs });
+    const last = msgs[msgs.length - 1], i = info[id];
+    if (last && i && (!i.lastT || last.t >= i.lastT)) { i.lastT = last.t; i.lastUid = last.uid; i.snip = '⚡ ' + snip(last.md); store.set('adm:info', info); }
+  }
+  // seen / heard (red number and sound), by Firebase time
+  function liveSeenNow(id) {
+    const top = liveMsgsOf(id).reduce((x, m) => Math.max(x, m.tms), 0);
+    const ls = store.get('adm:lseen', {});
+    if (top > (ls[id] || 0)) { ls[id] = top; store.set('adm:lseen', ls); }
+  }
+  function liveUnread(id) {
+    const s = store.get('adm:lseen', {})[id] || 0;
+    return liveMsgsOf(id).filter(m => m.uid !== me && m.tms > s).length;
+  }
+  function liveAnnounce(id) {
+    const top = liveMsgsOf(id).filter(m => m.uid !== me).reduce((x, m) => Math.max(x, m.tms), 0);
+    if (!top) return;
+    const heard = store.get('adm:lheard', {});
+    const prev = heard[id];
+    if (prev !== undefined && top <= prev) return;
+    heard[id] = top; store.set('adm:lheard', heard);
+    if (prev !== undefined && soundReady) nya();
+  }
+  // the newest key reply of the chat wins (both plugins end up on the same one)
+  function liveFindKey(id, msgs) {
+    const k = (msgs || []).filter(isKeyMsg).sort((a, b) => a.id - b.id).pop();
+    if (!k || k.id <= store.get('adm:lkid:' + id, 0)) return;
+    store.set('adm:lk:' + id, k.md.match(LIVE_RE)[1]);
+    store.set('adm:lkid:' + id, k.id);
+    store.del('adm:liveoff:' + id);
+    const heard = store.get('adm:lheard', {});
+    if (heard[id] === undefined) { heard[id] = Date.now() - 60e3; store.set('adm:lheard', heard); }
+    if (T && T.id === id) { convoHead(); liveStream(T); }
+  }
+  async function liveFetch(id) {
+    const k = await liveKeyOf(id);
+    if (!k) return [];
+    const r = await fbReq('/live/' + k.room + '/m');
+    if (!r.ok) throw new Error('live chat: ' + r.status);
+    const msgs = await liveDecode(k, await r.json());
+    liveStore(id, msgs);
+    return msgs;
+  }
+  async function liveSend(t, raw) {
+    if (raw.length > LIVE_MAX) throw new Error('too long for live chat (' + LIVE_MAX.toLocaleString() + ' characters at most)');
+    const k = await liveKeyOf(t.id);
+    if (!k) throw new Error('live chat is not on');
+    const i = info[t.id] || {};
+    const mine = [i.from, i.to].find(x => x && x.id === me) || { id: me, name: 'You', av: '' };
+    const o = { u: me, n: mine.name, a: mine.av, x: raw };
+    const sealed = await liveSeal(k, o);
+    const r = await fbReq('/live/' + k.room + '/m', 'POST', Object.assign(sealed, { t: { '.sv': 'timestamp' } }));
+    if (!r.ok) throw new Error('live chat refused it (' + r.status + ')');
+    const j = await r.json();
+    liveOpened.set(j.name, { c: sealed.c, o });
+    if (!liveMsgsOf(t.id).some(m => m.id === 'L' + j.name)) liveStore(t.id, liveMsgsOf(t.id).concat(liveMsg(j.name, Date.now(), o)));
+  }
+  // the open chat listens to Firebase (a live stream, no checking every few seconds)
+  function liveStop(t) { if (t && t.es) { t.es.close(); t.es = null; } }
+  async function liveStream(t) {
+    liveStop(t);
+    const k = await liveKeyOf(t.id);
+    if (!k || T !== t) return;
+    let a;
+    try { a = await fbToken(); } catch (e) { return; }
+    if (T !== t) return;
+    liveStop(t);
+    const es = t.es = new EventSource(FB.db + '/live/' + k.room + '/m.json?auth=' + encodeURIComponent(a.tok));
+    let data = {}, n = 0;
+    const changed = async () => {
+      const my = ++n;
+      const msgs = await liveDecode(k, data);
+      if (my !== n || T !== t || t.es !== es) return;
+      liveStore(t.id, msgs);
+      liveUpdated(t);
+    };
+    const onPut = (ev, patch) => {
+      let d; try { d = JSON.parse(ev.data); } catch (e) { return; }
+      if (!d) return;
+      const parts = String(d.path || '/').split('/').filter(Boolean);
+      if (!parts.length) data = patch ? Object.assign(data, d.data || {}) : Object.assign({}, d.data || {});
+      else if (parts.length === 1) {
+        if (d.data === null) delete data[parts[0]];
+        else data[parts[0]] = patch ? Object.assign({}, data[parts[0]], d.data) : d.data;
+      } else { liveFetch(t.id).then(() => liveUpdated(t)).catch(() => {}); return; }
+      if (patch) for (const key of Object.keys(data)) if (data[key] === null) delete data[key];
+      changed();
+    };
+    es.addEventListener('put', ev => onPut(ev, false));
+    es.addEventListener('patch', ev => onPut(ev, true));
+    es.addEventListener('auth_revoked', () => { liveStop(t); setTimeout(() => { if (T === t) liveStream(t); }, 500); });
+    es.addEventListener('cancel', () => liveStop(t));
+  }
+  function liveUpdated(t) {
+    if (T !== t) return;
+    render(t);
+    liveAnnounce(t.id);
+    if (t.stick) { stickBottom(t, true); if (document.visibilityState === 'visible' && ui.open && !ui.min) markSeen(t.id, t.msgs); }
+    renderBadge();
+  }
+  async function liveStart(t) {
+    if (t.liveBusy) return;
+    t.liveBusy = true;
+    flash(t, 'Turning on live chat…');
+    try {
+      const raw = b64e(crypto.getRandomValues(new Uint8Array(32)));
+      const d = await gql(Q_SEND, { a: t.id, t: '⚡ Live chat on (AniList DMs plugin) `dmslive:' + raw + '`' });
+      if (!d.SaveActivityReply) throw new Error('AniList did not accept it');
+      liveFindKey(t.id, [slim(d.SaveActivityReply)]);
+      flash(t, 'Live chat is on');
+      refreshOpen(t, true);
+    } catch (e) {
+      t.hint.textContent = 'Live chat not turned on: ' + e.message; t.hint.classList.add('adm-bad');
+    } finally { t.liveBusy = false; }
+  }
+  function liveToggle(t) {
+    if (!liveKeyRaw(t.id)) return liveStart(t);
+    if (liveOn(t.id)) store.set('adm:liveoff:' + t.id, true); else store.del('adm:liveoff:' + t.id);
+    convoHead();
+    flash(t, liveOn(t.id) ? 'Live chat is on' : 'Sending through AniList again (live messages still arrive)');
+  }
+  function liveBtn(i) {
+    if (!T || !(i.private && i.kind === 'message') || i.locked) return null;
+    const has = !!liveKeyRaw(T.id), on = liveOn(T.id);
+    return hb('⚡', !has ? 'Turn on live chat: no waiting between messages; they are copied into this AniList chat once a day'
+      : on ? 'Live chat is on (copied into this AniList chat once a day). Click to send through AniList instead'
+        : 'Live chat is off for you. Click to turn it back on', () => liveToggle(T), { class: 'adm-hb adm-live' + (on ? ' adm-on' : '') });
+  }
+  function liveHint(t) {
+    if (!t || !t.hint || t.hint.classList.contains('adm-bad')) return;
+    t.hint.textContent = liveOn(t.id) ? '⚡ Live · copied to AniList once a day' : (ui.enterSends ? 'Enter sends · Shift+Enter new line' : 'Ctrl+Enter sends');
+  }
+  // once a day: one plugin claims the copy, posts the live messages as one reply (more parts on the next checks if
+  // they are long) and deletes what it posted from Firebase
+  function liveText(msgs) {
+    const when = tms => { const d = new Date(tms); return d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+    return '⚡ __Live chat__\n\n' + msgs.map(m => '__' + m.name + '__ · ' + when(m.tms) + '\n' + m.md).join('\n\n');
+  }
+  async function liveCopy(id) {
+    const k = await liveKeyOf(id);
+    if (!k) return;
+    const msgs = liveMsgsOf(id);
+    const a = await fbToken();
+    let claim = store.get('adm:lcopy:' + id, 0);
+    if (!claim) {
+      if (!msgs.length) return;
+      const sr = await fbReq('/live/' + k.room + '/s');
+      const old = sr.ok ? await sr.json() : null;
+      const now = Date.now();
+      if (old && old.at && now - old.at < liveDay()) return;
+      if (!old && now - msgs[0].tms < liveDay()) return; // the first copy: a day after the first live message
+      const w = await fbReq('/live/' + k.room + '/s', 'PUT', { at: now, by: a.uid });
+      if (!w.ok) return;
+      await liveWait(3000);
+      const chk = await (await fbReq('/live/' + k.room + '/s')).json();
+      if (!chk || chk.by !== a.uid || chk.at !== now) return; // the other plugin got there first
+      claim = now;
+      store.set('adm:lcopy:' + id, claim);
+      store.set('adm:lcopyold:' + id, old);
+    }
+    const due = msgs.filter(m => m.tms <= claim);
+    if (!due.length) { store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id); return; }
+    const part = [];
+    for (const m of due) { part.push(m); if (part.length > 1 && liveText(part).length > LIVE_CHUNK) { part.pop(); break; } }
+    try {
+      const d = await gql(Q_SEND, { a: id, t: encEmoji(liveText(part)) });
+      if (!d.SaveActivityReply) throw new Error('not accepted');
+    } catch (e) {
+      // AniList said no (too fast?): give the claim back so the next check can try again
+      const old = store.get('adm:lcopyold:' + id, null);
+      try { await fbReq('/live/' + k.room + '/s', old ? 'PUT' : 'DELETE', old || undefined); } catch (e2) {}
+      store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id);
+      return;
+    }
+    const gone = {};
+    for (const m of part) gone[m.id.slice(1)] = null;
+    await fbReq('/live/' + k.room + '/m', 'PATCH', gone);
+    liveStore(id, liveMsgsOf(id).filter(m => !(m.id.slice(1) in gone)));
+    if (part.length === due.length) { store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id); }
+    if (T && T.id === id) refreshOpen(T, true);
+  }
+  const byTime = (a, b) => (a.origin ? -1 : b.origin ? 1 : (a.t - b.t) || ((a.live ? 1 : 0) - (b.live ? 1 : 0)) || (a.live ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.id - b.id));
 
   // ---- update notice ----------------------------------------------------------------------
   // GitHub's version.json is asked at most once an hour (shared by every AniList tab). A newer version puts an
@@ -842,14 +1118,15 @@
   function unreadOf(id) {
     const s = seen[id] || 0;
     let raw = null;
-    try { raw = localStorage.getItem('adm:m:' + id); } catch (e) {}
+    try { raw = localStorage.getItem('adm:m:' + id) + '|' + localStorage.getItem('adm:lm:' + id) + '|' + localStorage.getItem('adm:lseen'); } catch (e) {}
     const hit = unreadMemo.get(id);
     if (hit && hit.raw === raw && hit.s === s && hit.me === me) return hit.n;
-    const n = (cacheOf(id).msgs || []).filter(m => m.id > s && m.uid !== me).length;
+    const n = (cacheOf(id).msgs || []).filter(m => m.id > s && m.uid !== me && !isKeyMsg(m)).length + liveUnread(id);
     unreadMemo.set(id, { raw, s, me, n });
     return n;
   }
   function markSeen(id, msgs) {
+    liveSeenNow(id);
     const top = msgs.reduce((x, m) => Math.max(x, m.id), 0);
     if (top > (seen[id] || 0)) {
       seen = Object.assign(store.get('adm:seen', {}), seen);
@@ -1044,9 +1321,10 @@
   // Remember the newest messages + the list line, shared by every AniList tab.
   function remember(id, count, msgs) {
     msgs = msgs.slice().sort((a, b) => a.id - b.id);
+    liveFindKey(id, msgs);
     const keep = msgs.slice(-CACHE_KEEP);
     store.set('adm:m:' + id, { count, msgs: keep });
-    const last = keep[keep.length - 1];
+    const last = keep.filter(m => !isKeyMsg(m)).pop();
     const i = info[id] = info[id] || {};
     i.count = count;
     if (last) { i.lastT = last.t; i.lastUid = last.uid; i.snip = snip(last.md != null ? last.md : (last.html || '').replace(/<[^>]+>/g, ' ')); }
@@ -1098,6 +1376,7 @@
       }
       store.set('adm:info', info);
       for (const id of ids) announce(id, cacheOf(id).msgs);
+      for (const id of ids) if (liveKeyRaw(id)) { try { await liveFetch(id); liveAnnounce(id); await liveCopy(id); } catch (e) {} }
       // first run ever: what is already there counts as read
       if (!store.get('adm:seeded', false)) {
         for (const id of ids) markSeen(id, cacheOf(id).msgs || []);
@@ -1120,6 +1399,7 @@
   function closeThread() {
     if (!T) return;
     clearInterval(T.timer);
+    liveStop(T);
     if (T.ro) T.ro.disconnect();
     dropVms(T.box);
     T.box.remove();
@@ -1138,10 +1418,12 @@
         el('a', { class: 'adm-av', href: prof, style: avStyle(o.av) }),
         el('a', { href: prof, title: o.name + "'s profile" }, o.name),
         i.private ? el('span', { title: 'Private message', style: 'opacity:.5;font-size:12px' }, '🔒') : null),
+      liveBtn(i),
       el('a', { class: 'adm-hb', href: '/activity/' + T.id, title: 'Open this conversation as a page' }, '↗'),
       updBtn(),
       bigBtn(),
       hb('×', 'Close', () => setOpen(false))].filter(Boolean));
+    liveHint(T);
   }
 
   function openThread(id) {
@@ -1156,6 +1438,7 @@
     render(t);
     stickBottom(t);
     refreshOpen(t, true);
+    liveStream(t);
     t.timer = setInterval(() => { if (document.visibilityState === 'visible' && ui.open) refreshOpen(t); }, OPEN_POLL_MS);
     if (!touch) setTimeout(() => { if (T === t) t.ta.focus({ preventScroll: true }); }, 50);
   }
@@ -1378,15 +1661,15 @@
   function msgEl(t, m) {
     const prof = '/user/' + encodeURIComponent(m.name) + '/';
     const acts = el('div', { class: 'adm-acts' },
-      el('span', { class: 'adm-act', 'data-act': 'like', title: 'Like' }, m.liked ? '♥' : '♡'),
+      m.live ? null : el('span', { class: 'adm-act', 'data-act': 'like', title: 'Like' }, m.liked ? '♥' : '♡'),
       el('span', { class: 'adm-act', 'data-act': 'quote', title: 'Reply with a quote of this message' }, 'Reply'),
-      m.origin ? null : el('span', { class: 'adm-act adm-own', 'data-act': 'edit', title: 'Edit your message' }, 'Edit'),
-      m.origin ? null : el('span', { class: 'adm-act adm-own adm-del', 'data-act': 'del', title: 'Delete your message' }, 'Delete'));
+      m.origin || m.live ? null : el('span', { class: 'adm-act adm-own', 'data-act': 'edit', title: 'Edit your message' }, 'Edit'),
+      m.origin || m.live ? null : el('span', { class: 'adm-act adm-own adm-del', 'data-act': 'del', title: 'Delete your message' }, 'Delete'));
     const text = el('div', { class: 'adm-text' });
     const b = el('div', { class: 'adm-b' },
       el('div', { class: 'adm-meta' }, el('a', { class: 'adm-n', href: prof }, m.name), el('span', { class: 'adm-tm' })),
       text, acts);
-    const row = el('div', { class: 'adm-m' + (m.origin ? ' adm-origin' : ''), 'data-id': m.origin ? 'o' : m.id },
+    const row = el('div', { class: 'adm-m' + (m.origin ? ' adm-origin' : '') + (m.live ? ' adm-livemsg' : ''), 'data-id': m.origin ? 'o' : m.id },
       el('a', { class: 'adm-av', href: prof, style: avStyle(m.av), title: m.name }), b);
     // phones: tap a bubble to show its buttons
     if (touch) b.addEventListener('click', e => { if (!e.target.closest('a, img, video, .adm-act, .markdown-spoiler, lite-youtube')) b.classList.toggle('adm-tap'); });
@@ -1396,11 +1679,11 @@
   function updateEl(t, row, m) {
     row.classList.toggle('adm-mine', !!me && m.uid === me);
     const tm = row.querySelector('.adm-tm');
-    tm.textContent = clock(m.t) + (m.origin ? ' · first message' : '');
-    tm.title = new Date(m.t * 1000).toLocaleString();
+    tm.textContent = clock(m.t) + (m.origin ? ' · first message' : '') + (m.live ? ' ⚡' : '');
+    if (m.live) tm.title = 'Live message (copied into the AniList chat once a day) · ' + new Date(m.t * 1000).toLocaleString();
+    else tm.title = new Date(m.t * 1000).toLocaleString();
     const like = row.querySelector('[data-act="like"]');
-    like.textContent = m.liked ? '♥' : '♡';
-    like.title = m.liked ? 'Unlike' : 'Like';
+    if (like) { like.textContent = m.liked ? '♥' : '♡'; like.title = m.liked ? 'Unlike' : 'Like'; }
     let heart = row.querySelector('.adm-heart');
     if (m.likes) {
       if (!heart) { heart = el('span', { class: 'adm-heart', 'data-act': 'like' }); row.querySelector('.adm-b').append(heart); }
@@ -1416,14 +1699,16 @@
     if (T !== t) return;
     const all = t.msgs;
     const vis = all.slice(-t.shown);
-    const keep = new Set(vis.map(m => m.id));
+    const live = liveMsgsOf(t.id);
+    const keep = new Set([...vis.map(m => m.id), ...live.map(m => m.id)]);
     for (const [id, row] of t.els) if (id !== 'o' && !keep.has(id)) { dropVms(row); row.remove(); t.els.delete(id); }
     // the first message of the conversation, once you have scrolled back to the very start
     const i = info[t.id] || {};
     const atStart = t.fresh && t.minPage <= 1 && vis.length >= all.length && all.length >= t.count;
     const list = [];
     if (atStart && i.origin) list.push(i.origin);
-    list.push(...vis);
+    list.push(...vis.filter(m => !isKeyMsg(m)), ...live);
+    list.sort(byTime);
     const frag = [];
     let prev = null, prevDay = '';
     for (const m of list) {
@@ -1454,7 +1739,7 @@
         t.olderBusy ? 'Loading…' : 'Show older (' + hidden.toLocaleString() + ')'));
       if (t.shown > SHOW_LAST && vis.length > SHOW_LAST) t.olderBar.append(el('button', { class: 'adm-btn', type: 'button', onclick: () => hideOlder(t) }, 'Hide older'));
     }
-    t.status.textContent = t.error || (!all.length ? (t.fresh ? 'No replies yet. Say hi!' : 'Loading…') : '');
+    t.status.textContent = t.error || (!all.length && !live.length ? (t.fresh ? 'No replies yet. Say hi!' : 'Loading…') : '');
     t.status.classList.toggle('adm-bad', !!t.error);
     if (i.locked) { t.ta.disabled = true; t.ta.placeholder = 'This conversation is locked'; }
   }
@@ -1543,6 +1828,14 @@
     t.sending = true; t.sendBtn.disabled = true; t.sendBtn.textContent = 'Sending…';
     t.emoji.hidden = true;
     try {
+      if (liveOn(t.id)) {
+        await liveSend(t, raw);
+        if (ta.value === raw) ta.value = '';
+        store.del('adm:draft:' + t.id);
+        grow(t); showPreview(t);
+        if (T === t) { liveSeenNow(t.id); render(t); t.stick = true; stickBottom(t, true); flash(t, 'Sent live'); }
+        return;
+      }
       const d = await gql(Q_SEND, { a: t.id, t: encEmoji(raw) });
       const r = d.SaveActivityReply;
       if (!r) throw new Error('AniList did not accept it');
@@ -1605,6 +1898,7 @@
     const act = e.target.closest('[data-act]');
     if (!act) return;
     const row = act.closest('.adm-m');
+    if (String(row.dataset.id).startsWith('L')) { const lm = liveMsgsOf(t.id).find(x => x.id === row.dataset.id); if (lm && act.dataset.act === 'quote') quoteMsg(t, lm); return; }
     const id = row.dataset.id === 'o' ? 'o' : +row.dataset.id;
     const m = id === 'o' ? (info[t.id] || {}).origin : t.byId.get(id);
     if (!m) return;
@@ -1710,6 +2004,8 @@
     else if (e.key === 'adm:upd') { upd = store.get('adm:upd', upd); renderHead(); return; }
     else if (e.key === 'adm:ui') { const u = store.get('adm:ui', {}); ui.sound = u.sound; ui.soundPick = u.soundPick; ui.volume = u.volume; return; }
     else if (e.key === 'adm:sounds' || e.key === 'adm:drop') { /* the list below redraws with the new names */ }
+    else if (e.key.startsWith('adm:lm:')) { if (T && e.key === 'adm:lm:' + T.id) liveUpdated(T); }
+    else if (e.key.startsWith('adm:lk:')) { if (T && e.key === 'adm:lk:' + T.id) { convoHead(); liveStream(T); } }
     else if (e.key.startsWith('adm:m:')) { if (T && e.key === 'adm:m:' + T.id && changedOutside(T)) refreshOpen(T, true); }
     else return;
     renderBadge();
