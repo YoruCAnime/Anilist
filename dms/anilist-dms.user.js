@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.4.0
+// @version      1.4.1
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.4.0'; // the same as @version above
+  const VERSION = '1.4.1'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -822,6 +822,9 @@
   function b64e(u8) { let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
   function b64d(str) { const s = str.replace(/-/g, '+').replace(/_/g, '/'); const b = atob(s + '='.repeat((4 - s.length % 4) % 4)); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
   const liveKeyRaw = id => store.get('adm:lk:' + id, '');
+  const LP = 'live2'; // 1.4.1 (writer-owned messages); 1.4.0 wrote to /live, still read and copied
+  const fbUid = () => (store.get('adm:fb', null) || {}).uid || '';
+  const liveMine = m => !!(m && m.live && m.p === LP && m.w && m.w === fbUid());
   const liveOn = id => !!liveKeyRaw(id) && !store.get('adm:liveoff:' + id, false);
 
   // an anonymous Firebase sign-in for this browser (no account; kept and refreshed here)
@@ -880,14 +883,14 @@
       return o;
     } catch (e) { return null; }
   }
-  const liveMsg = (key, tms, o) => ({ id: 'L' + key, live: true, tms, t: Math.floor(tms / 1000), uid: +o.u || 0, name: String(o.n || '?'),
-    av: String(o.a || ''), md: String(o.x || ''), html: '', likes: 0, liked: false, likers: [] });
-  async function liveDecode(k, data) {
+  const liveMsg = (key, tms, o, w, p) => ({ id: 'L' + key, live: true, tms, t: Math.floor(tms / 1000), uid: +o.u || 0, name: String(o.n || '?'),
+    av: String(o.a || ''), md: String(o.x || ''), html: '', likes: 0, liked: false, likers: [], w: String(w || ''), p: p || LP, edited: !!o.ed });
+  async function liveDecode(k, data, p) {
     const out = [];
     for (const [key, rec] of Object.entries(data || {})) {
       if (!rec || typeof rec.c !== 'string' || typeof rec.v !== 'string') continue;
       const o = await liveOpen(k, key, rec);
-      if (o) out.push(liveMsg(key, +rec.t || Date.now(), o));
+      if (o) out.push(liveMsg(key, +rec.t || Date.now(), o, rec.w, p || LP));
     }
     return out.sort((a, b) => a.tms - b.tms || (a.id < b.id ? -1 : 1));
   }
@@ -935,9 +938,11 @@
   async function liveFetch(id) {
     const k = await liveKeyOf(id);
     if (!k) return [];
-    const r = await fbReq('/live/' + k.room + '/m');
+    const r = await fbReq('/' + LP + '/' + k.room + '/m');
     if (!r.ok) throw new Error('live chat: ' + r.status);
-    const msgs = await liveDecode(k, await r.json());
+    const msgs = await liveDecode(k, await r.json(), LP);
+    const o = await fbReq('/live/' + k.room + '/m'); // sent with 1.4.0
+    if (o.ok) { msgs.push(...await liveDecode(k, await o.json(), 'live')); msgs.sort((a, b) => a.tms - b.tms || (a.id < b.id ? -1 : 1)); }
     liveStore(id, msgs);
     return msgs;
   }
@@ -949,11 +954,35 @@
     const mine = [i.from, i.to].find(x => x && x.id === me) || { id: me, name: 'You', av: '' };
     const o = { u: me, n: mine.name, a: mine.av, x: raw };
     const sealed = await liveSeal(k, o);
-    const r = await fbReq('/live/' + k.room + '/m', 'POST', Object.assign(sealed, { t: { '.sv': 'timestamp' } }));
+    const a = await fbToken();
+    const r = await fbReq('/' + LP + '/' + k.room + '/m', 'POST', Object.assign(sealed, { t: { '.sv': 'timestamp' }, w: a.uid }));
     if (!r.ok) throw new Error('live chat refused it (' + r.status + ')');
     const j = await r.json();
     liveOpened.set(j.name, { c: sealed.c, o });
-    if (!liveMsgsOf(t.id).some(m => m.id === 'L' + j.name)) liveStore(t.id, liveMsgsOf(t.id).concat(liveMsg(j.name, Date.now(), o)));
+    if (!liveMsgsOf(t.id).some(m => m.id === 'L' + j.name)) liveStore(t.id, liveMsgsOf(t.id).concat(liveMsg(j.name, Date.now(), o, a.uid, LP)));
+  }
+  // your own live message: change it (keeps its time) or take it away
+  async function liveEdit(t, m, text) {
+    if (!liveMine(m)) throw new Error('only the browser that sent it can change it');
+    if (text.length > LIVE_MAX) throw new Error('too long (' + LIVE_MAX.toLocaleString() + ' characters at most)');
+    const k = await liveKeyOf(t.id);
+    const key = m.id.slice(1), path = '/' + LP + '/' + k.room + '/m/' + key;
+    const cur = await fbReq(path);
+    const rec = cur.ok ? await cur.json() : null;
+    if (!rec) throw new Error('it is not there any more (copied into AniList?)');
+    const o = { u: me, n: m.name, a: m.av, x: text, ed: 1 };
+    const sealed = await liveSeal(k, o);
+    const r = await fbReq(path, 'PUT', Object.assign(sealed, { t: rec.t, w: fbUid() }));
+    if (!r.ok) throw new Error('live chat refused it (' + r.status + ')');
+    liveOpened.set(key, { c: sealed.c, o });
+    liveStore(t.id, liveMsgsOf(t.id).map(x => x.id === m.id ? liveMsg(key, +rec.t, o, fbUid(), LP) : x));
+  }
+  async function liveDelete(t, m) {
+    if (!liveMine(m)) throw new Error('only the browser that sent it can delete it');
+    const k = await liveKeyOf(t.id);
+    const r = await fbReq('/' + LP + '/' + k.room + '/m/' + m.id.slice(1), 'DELETE');
+    if (!r.ok) throw new Error('live chat refused it (' + r.status + ')');
+    liveStore(t.id, liveMsgsOf(t.id).filter(x => x.id !== m.id));
   }
   // the open chat listens to Firebase (a live stream, no checking every few seconds)
   function liveStop(t) { if (t && t.es) { t.es.close(); t.es = null; } }
@@ -965,11 +994,11 @@
     try { a = await fbToken(); } catch (e) { return; }
     if (T !== t) return;
     liveStop(t);
-    const es = t.es = new EventSource(FB.db + '/live/' + k.room + '/m.json?auth=' + encodeURIComponent(a.tok));
+    const es = t.es = new EventSource(FB.db + '/' + LP + '/' + k.room + '/m.json?auth=' + encodeURIComponent(a.tok));
     let data = {}, n = 0;
     const changed = async () => {
       const my = ++n;
-      const msgs = await liveDecode(k, data);
+      const msgs = (await liveDecode(k, data, LP)).concat(liveMsgsOf(t.id).filter(m => m.p === 'live')).sort((a, b) => a.tms - b.tms || (a.id < b.id ? -1 : 1));
       if (my !== n || T !== t || t.es !== es) return;
       liveStore(t.id, msgs);
       liveUpdated(t);
@@ -1044,15 +1073,15 @@
     let claim = store.get('adm:lcopy:' + id, 0);
     if (!claim) {
       if (!msgs.length) return;
-      const sr = await fbReq('/live/' + k.room + '/s');
+      const sr = await fbReq('/' + LP + '/' + k.room + '/s');
       const old = sr.ok ? await sr.json() : null;
       const now = Date.now();
       if (old && old.at && now - old.at < liveDay()) return;
       if (!old && now - msgs[0].tms < liveDay()) return; // the first copy: a day after the first live message
-      const w = await fbReq('/live/' + k.room + '/s', 'PUT', { at: now, by: a.uid });
+      const w = await fbReq('/' + LP + '/' + k.room + '/s', 'PUT', { at: now, by: a.uid });
       if (!w.ok) return;
       await liveWait(3000);
-      const chk = await (await fbReq('/live/' + k.room + '/s')).json();
+      const chk = await (await fbReq('/' + LP + '/' + k.room + '/s')).json();
       if (!chk || chk.by !== a.uid || chk.at !== now) return; // the other plugin got there first
       claim = now;
       store.set('adm:lcopy:' + id, claim);
@@ -1068,14 +1097,15 @@
     } catch (e) {
       // AniList said no (too fast?): give the claim back so the next check can try again
       const old = store.get('adm:lcopyold:' + id, null);
-      try { await fbReq('/live/' + k.room + '/s', old ? 'PUT' : 'DELETE', old || undefined); } catch (e2) {}
+      try { await fbReq('/' + LP + '/' + k.room + '/s', old ? 'PUT' : 'DELETE', old || undefined); } catch (e2) {}
       store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id);
       return;
     }
-    const gone = {};
-    for (const m of part) gone[m.id.slice(1)] = null;
-    await fbReq('/live/' + k.room + '/m', 'PATCH', gone);
-    liveStore(id, liveMsgsOf(id).filter(m => !(m.id.slice(1) in gone)));
+    const gone = { [LP]: {}, live: {} };
+    for (const m of part) gone[m.p === 'live' ? 'live' : LP][m.id.slice(1)] = null;
+    for (const path of [LP, 'live']) if (Object.keys(gone[path]).length) await fbReq('/' + path + '/' + k.room + '/m', 'PATCH', gone[path]);
+    const ids = new Set(part.map(m => m.id));
+    liveStore(id, liveMsgsOf(id).filter(m => !ids.has(m.id)));
     if (part.length === due.length) { store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id); }
     if (T && T.id === id) refreshOpen(T, true);
   }
@@ -1663,8 +1693,8 @@
     const acts = el('div', { class: 'adm-acts' },
       m.live ? null : el('span', { class: 'adm-act', 'data-act': 'like', title: 'Like' }, m.liked ? '♥' : '♡'),
       el('span', { class: 'adm-act', 'data-act': 'quote', title: 'Reply with a quote of this message' }, 'Reply'),
-      m.origin || m.live ? null : el('span', { class: 'adm-act adm-own', 'data-act': 'edit', title: 'Edit your message' }, 'Edit'),
-      m.origin || m.live ? null : el('span', { class: 'adm-act adm-own adm-del', 'data-act': 'del', title: 'Delete your message' }, 'Delete'));
+      m.origin || (m.live && !liveMine(m)) ? null : el('span', { class: 'adm-act adm-own', 'data-act': 'edit', title: 'Edit your message' }, 'Edit'),
+      m.origin || (m.live && !liveMine(m)) ? null : el('span', { class: 'adm-act adm-own adm-del', 'data-act': 'del', title: 'Delete your message' }, 'Delete'));
     const text = el('div', { class: 'adm-text' });
     const b = el('div', { class: 'adm-b' },
       el('div', { class: 'adm-meta' }, el('a', { class: 'adm-n', href: prof }, m.name), el('span', { class: 'adm-tm' })),
@@ -1679,7 +1709,7 @@
   function updateEl(t, row, m) {
     row.classList.toggle('adm-mine', !!me && m.uid === me);
     const tm = row.querySelector('.adm-tm');
-    tm.textContent = clock(m.t) + (m.origin ? ' · first message' : '') + (m.live ? ' ⚡' : '');
+    tm.textContent = clock(m.t) + (m.origin ? ' · first message' : '') + (m.edited ? ' · edited' : '') + (m.live ? ' ⚡' : '');
     if (m.live) tm.title = 'Live message (copied into the AniList chat once a day) · ' + new Date(m.t * 1000).toLocaleString();
     else tm.title = new Date(m.t * 1000).toLocaleString();
     const like = row.querySelector('[data-act="like"]');
@@ -1898,7 +1928,7 @@
     const act = e.target.closest('[data-act]');
     if (!act) return;
     const row = act.closest('.adm-m');
-    if (String(row.dataset.id).startsWith('L')) { const lm = liveMsgsOf(t.id).find(x => x.id === row.dataset.id); if (lm && act.dataset.act === 'quote') quoteMsg(t, lm); return; }
+    if (String(row.dataset.id).startsWith('L')) { const lm = liveMsgsOf(t.id).find(x => x.id === row.dataset.id); if (!lm) return; if (act.dataset.act === 'quote') quoteMsg(t, lm); else if (act.dataset.act === 'edit') startEdit(t, lm, row); else if (act.dataset.act === 'del') askDelete(t, lm, row); return; }
     const id = row.dataset.id === 'o' ? 'o' : +row.dataset.id;
     const m = id === 'o' ? (info[t.id] || {}).origin : t.byId.get(id);
     if (!m) return;
@@ -1944,6 +1974,7 @@
       if (!ta.value.trim()) return;
       save.disabled = true; save.textContent = 'Saving…';
       try {
+        if (m.live) { await liveEdit(t, m, ta.value); done(); row._key = null; render(t); return; }
         const d = await gql(Q_SAVE, { id: m.id, a: t.id, t: encEmoji(ta.value) });
         const r = d.SaveActivityReply;
         if (r) { m.md = r.md; m.html = r.html; }
@@ -1976,6 +2007,7 @@
       el('button', { class: 'adm-btn', type: 'button', onclick: () => box.remove() }, 'No'),
       el('button', { class: 'adm-btn adm-pri', type: 'button', style: 'background:rgb(var(--color-red))', onclick: async () => {
         try {
+          if (m.live) { await liveDelete(t, m); render(t); return; }
           const d = await gql(Q_DEL, { id: m.id });
           if (d.DeleteActivityReply && d.DeleteActivityReply.deleted) {
             setMsgs(t, t.msgs.filter(x => x.id !== m.id));
