@@ -1,1 +1,1 @@
-{ "version": "1.4.1", "notes": "Edit and delete your own live messages" }
+{ "version": "1.4.2", "notes": "Edit and Delete no longer go off the edge on short messages" }

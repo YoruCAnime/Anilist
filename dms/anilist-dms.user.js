@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.4.1
+// @version      1.4.2
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.4.1'; // the same as @version above
+  const VERSION = '1.4.2'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -356,7 +356,7 @@
   .adm-soundnote { font-size: 12px; }
 
   .adm-convo { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-  .adm-scroll { flex: 1 1 0; min-height: 70px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 10px 6px; }
+  .adm-scroll { flex: 1 1 0; min-height: 70px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 8px 10px 6px; }
   .adm-older { display: flex; justify-content: center; gap: 6px; margin: 2px 0 8px; }
   .adm-older .adm-btn { font-size: 12px; padding: 4px 11px; border-radius: 14px; }
   .adm-status { text-align: center; font-size: 12px; opacity: .65; margin: 4px 0; }
@@ -401,8 +401,9 @@
   .adm-text blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid rgba(var(--color-text), .3); opacity: .85; }
   .adm-acts { display: none; position: absolute; top: -13px; gap: 2px; padding: 2px 4px; border-radius: 12px; z-index: 2;
     background: rgb(var(--color-background)); box-shadow: 0 2px 8px rgba(0,0,0,.35); font-size: 12px; white-space: nowrap; }
-  .adm-m:not(.adm-mine) .adm-acts { right: 6px; }
-  .adm-mine .adm-acts { left: 6px; }
+  /* the buttons grow from the bubble's outer edge towards the middle, so a short message never pushes them out of the chat */
+  .adm-m:not(.adm-mine) .adm-acts { left: 6px; }
+  .adm-mine .adm-acts { right: 6px; }
   .adm-b:hover .adm-acts, .adm-b.adm-tap .adm-acts { display: flex; }
   .adm-act { cursor: pointer; padding: 2px 6px; border-radius: 8px; opacity: .8; user-select: none; }
   .adm-act:hover { opacity: 1; color: rgb(var(--color-blue)); background: rgba(var(--color-text), .08); }
