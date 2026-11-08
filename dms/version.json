@@ -1,1 +1,1 @@
-{ "version": "1.4.2", "notes": "Edit and Delete no longer go off the edge on short messages" }
+{ "version": "1.4.3", "notes": "Live chat keeps its normal bubbles after the daily copy" }

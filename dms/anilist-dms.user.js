@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.4.2
+// @version      1.4.3
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.4.2'; // the same as @version above
+  const VERSION = '1.4.3'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -800,7 +800,7 @@
   // load (what came while you were away just shows the red number).
   let soundReady = false;
   function announce(id, msgs) {
-    const top = (msgs || []).filter(m => m.uid && m.uid !== me && !isKeyMsg(m)).reduce((x, m) => Math.max(x, m.id), 0); // the hidden live key makes no sound
+    const top = (msgs || []).filter(m => m.uid && m.uid !== me && !isKeyMsg(m) && !isCopyMsg(m)).reduce((x, m) => Math.max(x, m.id), 0); // the hidden live key makes no sound
     if (!top) return;
     const heard = store.get('adm:heard', {});
     const prev = heard[id];
@@ -819,6 +819,47 @@
   const LIVE_CHUNK = 3000, LIVE_MAX = 20000;
   const liveDay = () => +store.get('adm:testCopyMs', 0) || 24 * 3600e3; // a day between copies (tests shorten it)
   const isKeyMsg = m => !!(m && typeof m.md === 'string' && LIVE_RE.test(m.md));
+  // 1.4.3: the daily copy stays in the AniList chat, but in the plugin it is shown as the ordinary live bubbles it came from
+  const COPY_RE = /^\s*(?:⚡|&#9889;)\uFE0F?\s*__Live chat__\s*\n+__[^\n]+?__ · /;
+  const isCopyMsg = m => !!(m && typeof m.md === 'string' && COPY_RE.test(m.md));
+  // copies made before 1.4.3 only hold the writer's clock ("7 Nov 21:18", "Nov 7 09:18 PM"), without a year
+  function copyWhen(s, ref) {
+    const x = s.replace(/[\u00A0\u202F]/g, ' ').match(/^(\d{1,2}\.?) ([^\d\s]+) (.+)$/) || s.replace(/[\u00A0\u202F]/g, ' ').match(/^([^\d\s]+) (\d{1,2}),? (.+)$/);
+    if (!x) return 0;
+    const y = new Date(ref * 1000).getFullYear();
+    for (const year of [y, y - 1]) {
+      const v = Date.parse(x[1] + ' ' + x[2] + ' ' + year + ' ' + x[3]);
+      if (!isNaN(v) && v <= ref * 1000 + 864e5) return v;
+    }
+    return 0;
+  }
+  const copyMemo = new Map(); // reply id -> { md, list }
+  function liveCopyMsgs(id, m) {
+    const hit = copyMemo.get(m.id);
+    if (hit && hit.md === m.md) return hit.list;
+    let md = decEmoji(m.md).replace(/\r\n/g, '\n').replace(/^\s*(?:⚡|&#9889;)\uFE0F?\s*__Live chat__\s*/, '');
+    let times = null;
+    const tail = md.match(/\n+`dmst:([0-9a-z,]+)`\s*$/);
+    if (tail) { times = tail[1].split(',').map(x => parseInt(x, 36)); md = md.slice(0, tail.index); }
+    const heads = [...md.matchAll(/(?:^|\n\n)__([^\n]+?)__ · ([^\n]*)\n/g)];
+    if (times && times.length !== heads.length) times = null;
+    const i = info[id] || {};
+    let known = true;
+    const list = heads.map((h, n) => {
+      const who = [i.from, i.to].find(x => x && x.name === h[1]) || (m.name === h[1] ? { id: m.uid, av: m.av } : null);
+      if (!who) known = false;
+      const tms = (times && times[n]) || copyWhen(h[2], m.t) || (m.t * 1000 - (heads.length - n));
+      const x = md.slice(h.index + h[0].length, n + 1 < heads.length ? heads[n + 1].index : md.length).replace(/\s+$/, '');
+      return liveMsg('c' + m.id + '_' + String(n).padStart(4, '0'), tms, { u: who ? who.id : 0, n: h[1], a: who ? who.av : '', x }, '', 'copy');
+    });
+    if (known) copyMemo.set(m.id, { md: m.md, list });
+    return list;
+  }
+  function copyUnread(id, msgs, s) {
+    const lseen = store.get('adm:lseen', {})[id] || 0;
+    const live = new Set(liveMsgsOf(id).map(m => m.tms));
+    return msgs.filter(m => m.id > s && isCopyMsg(m)).flatMap(m => liveCopyMsgs(id, m)).filter(b => b.uid !== me && b.tms > lseen && !live.has(b.tms)).length;
+  }
   const liveWait = ms => new Promise(r => setTimeout(r, ms));
   function b64e(u8) { let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
   function b64d(str) { const s = str.replace(/-/g, '+').replace(/_/g, '/'); const b = atob(s + '='.repeat((4 - s.length % 4) % 4)); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
@@ -981,11 +1022,13 @@
   async function liveDelete(t, m) {
     if (!liveMine(m)) throw new Error('only the browser that sent it can delete it');
     const k = await liveKeyOf(t.id);
+    liveOwnGone.add(m.id);
     const r = await fbReq('/' + LP + '/' + k.room + '/m/' + m.id.slice(1), 'DELETE');
     if (!r.ok) throw new Error('live chat refused it (' + r.status + ')');
     liveStore(t.id, liveMsgsOf(t.id).filter(x => x.id !== m.id));
   }
   // the open chat listens to Firebase (a live stream, no checking every few seconds)
+  const liveOwnGone = new Set(); // live ids we removed ourselves (nothing to look for in AniList)
   function liveStop(t) { if (t && t.es) { t.es.close(); t.es = null; } }
   async function liveStream(t) {
     liveStop(t);
@@ -999,6 +1042,11 @@
     let data = {}, n = 0;
     const changed = async () => {
       const my = ++n;
+      // a message that left Firebase may be in a new daily copy: load that first, so its bubble never blinks away
+      if (liveMsgsOf(t.id).some(m => m.p === LP && !data[m.id.slice(1)] && !liveOwnGone.has(m.id) && Date.now() - m.tms > 15e3)) {
+        try { await refreshOpen(t); } catch (e) {}
+        if (my !== n || T !== t || t.es !== es) return;
+      }
       const msgs = (await liveDecode(k, data, LP)).concat(liveMsgsOf(t.id).filter(m => m.p === 'live')).sort((a, b) => a.tms - b.tms || (a.id < b.id ? -1 : 1));
       if (my !== n || T !== t || t.es !== es) return;
       liveStore(t.id, msgs);
@@ -1064,7 +1112,7 @@
   // they are long) and deletes what it posted from Firebase
   function liveText(msgs) {
     const when = tms => { const d = new Date(tms); return d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
-    return '⚡ __Live chat__\n\n' + msgs.map(m => '__' + m.name + '__ · ' + when(m.tms) + '\n' + m.md).join('\n\n');
+    return '⚡ __Live chat__\n\n' + msgs.map(m => '__' + m.name + '__ · ' + when(m.tms) + '\n' + m.md).join('\n\n') + '\n\n`dmst:' + msgs.map(m => m.tms.toString(36)).join(',') + '`';
   }
   async function liveCopy(id) {
     const k = await liveKeyOf(id);
@@ -1102,13 +1150,14 @@
       store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id);
       return;
     }
+    for (const m of part) liveOwnGone.add(m.id);
+    if (T && T.id === id) { try { await refreshOpen(T, true); } catch (e) {} }
     const gone = { [LP]: {}, live: {} };
     for (const m of part) gone[m.p === 'live' ? 'live' : LP][m.id.slice(1)] = null;
     for (const path of [LP, 'live']) if (Object.keys(gone[path]).length) await fbReq('/' + path + '/' + k.room + '/m', 'PATCH', gone[path]);
     const ids = new Set(part.map(m => m.id));
     liveStore(id, liveMsgsOf(id).filter(m => !ids.has(m.id)));
     if (part.length === due.length) { store.del('adm:lcopy:' + id); store.del('adm:lcopyold:' + id); }
-    if (T && T.id === id) refreshOpen(T, true);
   }
   const byTime = (a, b) => (a.origin ? -1 : b.origin ? 1 : (a.t - b.t) || ((a.live ? 1 : 0) - (b.live ? 1 : 0)) || (a.live ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.id - b.id));
 
@@ -1152,7 +1201,7 @@
     try { raw = localStorage.getItem('adm:m:' + id) + '|' + localStorage.getItem('adm:lm:' + id) + '|' + localStorage.getItem('adm:lseen'); } catch (e) {}
     const hit = unreadMemo.get(id);
     if (hit && hit.raw === raw && hit.s === s && hit.me === me) return hit.n;
-    const n = (cacheOf(id).msgs || []).filter(m => m.id > s && m.uid !== me && !isKeyMsg(m)).length + liveUnread(id);
+    const n = (cacheOf(id).msgs || []).filter(m => m.id > s && m.uid !== me && !isKeyMsg(m) && !isCopyMsg(m)).length + liveUnread(id) + copyUnread(id, cacheOf(id).msgs || [], s);
     unreadMemo.set(id, { raw, s, me, n });
     return n;
   }
@@ -1355,7 +1404,8 @@
     liveFindKey(id, msgs);
     const keep = msgs.slice(-CACHE_KEEP);
     store.set('adm:m:' + id, { count, msgs: keep });
-    const last = keep.filter(m => !isKeyMsg(m)).pop();
+    let last = keep.filter(m => !isKeyMsg(m)).pop();
+    if (isCopyMsg(last)) last = Object.assign({}, last, liveCopyMsgs(id, last).slice(-1)[0]);
     const i = info[id] = info[id] || {};
     i.count = count;
     if (last) { i.lastT = last.t; i.lastUid = last.uid; i.snip = snip(last.md != null ? last.md : (last.html || '').replace(/<[^>]+>/g, ' ')); }
@@ -1711,7 +1761,7 @@
     row.classList.toggle('adm-mine', !!me && m.uid === me);
     const tm = row.querySelector('.adm-tm');
     tm.textContent = clock(m.t) + (m.origin ? ' · first message' : '') + (m.edited ? ' · edited' : '') + (m.live ? ' ⚡' : '');
-    if (m.live) tm.title = 'Live message (copied into the AniList chat once a day) · ' + new Date(m.t * 1000).toLocaleString();
+    if (m.live) tm.title = (m.p === 'copy' ? 'Live message (saved in the AniList chat) · ' : 'Live message (copied into the AniList chat once a day) · ') + new Date(m.t * 1000).toLocaleString();
     else tm.title = new Date(m.t * 1000).toLocaleString();
     const like = row.querySelector('[data-act="like"]');
     if (like) { like.textContent = m.liked ? '♥' : '♡'; like.title = m.liked ? 'Unlike' : 'Like'; }
@@ -1731,14 +1781,16 @@
     const all = t.msgs;
     const vis = all.slice(-t.shown);
     const live = liveMsgsOf(t.id);
-    const keep = new Set([...vis.map(m => m.id), ...live.map(m => m.id)]);
+    const liveAt = new Set(live.map(m => m.tms));
+    const copied = vis.filter(isCopyMsg).flatMap(m => liveCopyMsgs(t.id, m)).filter(m => !liveAt.has(m.tms));
+    const keep = new Set([...vis.map(m => m.id), ...live.map(m => m.id), ...copied.map(m => m.id)]);
     for (const [id, row] of t.els) if (id !== 'o' && !keep.has(id)) { dropVms(row); row.remove(); t.els.delete(id); }
     // the first message of the conversation, once you have scrolled back to the very start
     const i = info[t.id] || {};
     const atStart = t.fresh && t.minPage <= 1 && vis.length >= all.length && all.length >= t.count;
     const list = [];
     if (atStart && i.origin) list.push(i.origin);
-    list.push(...vis.filter(m => !isKeyMsg(m)), ...live);
+    list.push(...vis.filter(m => !isKeyMsg(m) && !isCopyMsg(m)), ...live, ...copied);
     list.sort(byTime);
     const frag = [];
     let prev = null, prevDay = '';
@@ -1836,7 +1888,7 @@
         t.count = count; t.error = '';
         remember(id, count, t.msgs);
         render(t);
-        const theirs = added.filter(m => m.uid !== me).length;
+        const theirs = added.filter(m => m.uid !== me && !isCopyMsg(m)).length;
         announce(id, t.msgs);
         if (t.stick) stickBottom(t, before.size > 0);
         else if (theirs && before.size) newPill(t, t.newCount + theirs);
@@ -1929,7 +1981,7 @@
     const act = e.target.closest('[data-act]');
     if (!act) return;
     const row = act.closest('.adm-m');
-    if (String(row.dataset.id).startsWith('L')) { const lm = liveMsgsOf(t.id).find(x => x.id === row.dataset.id); if (!lm) return; if (act.dataset.act === 'quote') quoteMsg(t, lm); else if (act.dataset.act === 'edit') startEdit(t, lm, row); else if (act.dataset.act === 'del') askDelete(t, lm, row); return; }
+    if (String(row.dataset.id).startsWith('L')) { const lm = liveMsgsOf(t.id).concat(t.msgs.filter(isCopyMsg).flatMap(x => liveCopyMsgs(t.id, x))).find(x => x.id === row.dataset.id); if (!lm) return; if (act.dataset.act === 'quote') quoteMsg(t, lm); else if (act.dataset.act === 'edit') startEdit(t, lm, row); else if (act.dataset.act === 'del') askDelete(t, lm, row); return; }
     const id = row.dataset.id === 'o' ? 'o' : +row.dataset.id;
     const m = id === 'o' ? (info[t.id] || {}).origin : t.byId.get(id);
     if (!m) return;

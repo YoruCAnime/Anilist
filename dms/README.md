@@ -10,7 +10,7 @@ Your private AniList message chats as DMs: a small chat button in the bottom-rig
 - Click a picture or video to see it big
 - Drag the top bar to move the chat, drag an edge to resize; click the top bar to hide it (the chat button brings it back)
 - Text size in ⋯
-- **⚡ Live chat** in private chats: messages arrive instantly with no waiting between them, and once a day they are copied into the AniList chat as one message. Press ⚡ in the chat's top bar; the other person's plugin turns on by itself. Live messages are scrambled with a key that only exists inside your private AniList chat, so the live chat server only ever sees scrambled text. You can edit or delete your own live messages (from the browser you sent them from). Both people need the plugin to chat live.
+- **⚡ Live chat** in private chats: messages arrive instantly with no waiting between them, and once a day they are copied into the AniList chat as one message (the plugin keeps showing them as normal bubbles). Press ⚡ in the chat's top bar; the other person's plugin turns on by itself. Live messages are scrambled with a key that only exists inside your private AniList chat, so the live chat server only ever sees scrambled text. You can edit or delete your own live messages (from the browser you sent them from). Both people need the plugin to chat live.
 - Pick your notification sound in ⋯: 3 built in, shared ones from [Yoru_dropbox](https://github.com/j35draaken-ui/Yoru_dropbox) (they appear by themselves), or **Add your own** (10 s and 2 MB at most; it stays in your browser)
 - Like, reply, edit and delete messages
 - **+** to add a chat (your message posts are listed, one click)
