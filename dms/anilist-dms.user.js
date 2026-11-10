@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.5.1
+// @version      1.5.2
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.5.1'; // the same as @version above
+  const VERSION = '1.5.2'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -40,7 +40,7 @@
     del(k) { try { localStorage.removeItem(k); } catch (e) {} },
   };
   const touch = matchMedia('(pointer: coarse)').matches;
-  const ui = Object.assign({ open: false, thread: 0, big: false, enterSends: !touch, smartPaste: true, preview: true, min: false, sound: true, soundPick: 'new', volume: 0.15, textSize: 1, look: 'vn' }, store.get('adm:ui', {}));
+  const ui = Object.assign({ open: false, thread: 0, big: false, enterSends: !touch, smartPaste: true, preview: true, min: false, sound: true, soundPick: 'new', volume: 0.15, textSize: 1 }, store.get('adm:ui', {}));
   const saveUi = () => store.set('adm:ui', ui);
   let info = store.get('adm:info', {});
   // your conversations (1.0 / 1.1 only saved the list once you changed it: take it from what they remembered)
@@ -493,68 +493,6 @@
   .adm-pinb:hover { opacity: 1; }
   .adm-pinmark { flex: none; font-size: 11px; }
 
-  /* ---- 1.5: the Visual Novel look (Options > Look) ---- */
-  .adm-look-vn { --color-blue: 255,214,120; --color-text: 226,230,250; --color-foreground: 22,26,60; --color-background: 12,15,40; }
-  .adm-look-vn .adm-panel { border-radius: 14px; background: linear-gradient(180deg, #2b2456 0%, #3d2f63 35%, #1b2340 100%);
-    box-shadow: 0 12px 44px rgba(0,0,0,.55), 0 0 0 1px rgba(255,214,120,.45), inset 0 0 0 3px rgba(10,14,36,.6); }
-  .adm-look-vn .adm-head { background: rgba(10,14,36,.84); border-bottom: 1px solid rgba(255,214,120,.5); }
-  .adm-look-vn .adm-title { color: #fff3d6; letter-spacing: .04em; }
-  .adm-look-vn .adm-scroll, .adm-look-vn .adm-list { padding-left: 12px; padding-right: 12px; background-size: 260px 200px;
-    background-image: radial-gradient(1.3px 1.3px at 20px 30px, rgba(255,255,255,.55), transparent), radial-gradient(1px 1px at 90px 12px, rgba(255,255,255,.45), transparent),
-      radial-gradient(1.5px 1.5px at 160px 50px, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 220px 20px, rgba(255,255,255,.4), transparent),
-      radial-gradient(1px 1px at 60px 90px, rgba(255,255,255,.4), transparent), radial-gradient(1.3px 1.3px at 130px 110px, rgba(255,255,255,.35), transparent),
-      radial-gradient(1px 1px at 200px 130px, rgba(255,255,255,.45), transparent), radial-gradient(1.4px 1.4px at 30px 150px, rgba(255,255,255,.35), transparent),
-      radial-gradient(1.2px 1.2px at 240px 170px, rgba(255,255,255,.35), transparent), radial-gradient(1px 1px at 100px 180px, rgba(255,255,255,.4), transparent); }
-  .adm-look-vn .adm-scroll { padding-bottom: 18px; }
-  .adm-look-vn .adm-av { box-shadow: 0 0 0 2px rgba(255,214,120,.5); }
-  .adm-look-vn .adm-day { opacity: 1; color: #ffe6ad; font-style: italic; letter-spacing: .06em; }
-  .adm-look-vn .adm-day::before { content: '──\\00a0\\00a0'; opacity: .6; }
-  .adm-look-vn .adm-day::after { content: '\\00a0\\00a0──'; opacity: .6; }
-  .adm-look-vn .adm-m { margin-top: 20px; }
-  .adm-look-vn .adm-m.adm-cont { margin-top: 5px; }
-  .adm-look-vn .adm-m.adm-mine .adm-av { display: block; } /* 1.5.1: your own picture too, on the right */
-  .adm-look-vn .adm-b, .adm-look-vn .adm-m:not(.adm-mine) .adm-b, .adm-look-vn .adm-mine .adm-b { border-radius: 10px; }
-  .adm-look-vn .adm-b { padding: 11px 13px 8px; background: rgba(10,16,44,.82); min-width: 130px; --color-text: 240,242,255;
-    box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5), inset 0 0 0 4px rgba(120,150,255,.2), 0 4px 14px rgba(0,0,0,.35); }
-  .adm-look-vn .adm-mine .adm-b { background: rgba(46,20,54,.84); box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5), inset 0 0 0 4px rgba(255,214,120,.14), 0 4px 14px rgba(0,0,0,.35); }
-  .adm-look-vn .adm-origin .adm-b { border: 0; box-shadow: inset 0 0 0 2px rgba(255,214,120,.85), inset 0 0 0 4px rgba(255,214,120,.2), 0 4px 14px rgba(0,0,0,.35); }
-  .adm-look-vn .adm-livemsg .adm-b { box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5), inset 0 0 0 4px rgba(245,197,66,.45), 0 4px 14px rgba(0,0,0,.35); }
-  /* the speaker's name plate on top of the box (yours too) */
-  .adm-look-vn .adm-meta .adm-n, .adm-look-vn .adm-mine .adm-meta .adm-n { display: block; position: absolute; top: -12px; left: 12px; padding: 1px 12px 0; border-radius: 6px;
-    font-size: calc(12px * var(--adm-fs, 1)); line-height: 1.6; color: #9db4ff; background: #10153a;
-    box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 2px 6px rgba(0,0,0,.4); max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .adm-look-vn .adm-mine .adm-meta .adm-n { left: auto; right: 12px; color: #ffd678; }
-  .adm-look-vn .adm-cont .adm-meta .adm-n, .adm-look-vn .adm-mine.adm-cont .adm-meta .adm-n { display: none; }
-  /* the hover buttons sit under the box (the name plate has the top) */
-  .adm-look-vn .adm-acts { top: auto; bottom: -14px; box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 2px 8px rgba(0,0,0,.45); }
-  /* ...on the side away from the next message's name plate (1.5.1) */
-  .adm-look-vn .adm-m:not(.adm-mine) .adm-acts { left: auto; right: 6px; }
-  .adm-look-vn .adm-mine .adm-acts { right: auto; left: 6px; }
-  .adm-look-vn .adm-mine .adm-b { min-width: 180px; }
-  .adm-look-vn .adm-heart { box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 1px 4px rgba(0,0,0,.3); }
-  .adm-look-vn .adm-msgs > .adm-m:last-child .adm-b { padding-bottom: 15px; }
-  .adm-look-vn .adm-msgs > .adm-m:last-child .adm-b::after { content: '▼'; position: absolute; right: 10px; bottom: 5px; font-size: 9px; line-height: 1; color: #ffd678;
-    animation: adm-vn 1s ease-in-out 5; pointer-events: none; } /* blinks 5 times for a new message, then rests (an endless blink keeps the browser repainting) */
-  @keyframes adm-vn { 50% { transform: translateY(3px); opacity: .4; } }
-  .adm-look-vn .adm-row { margin: 6px 0; border-radius: 10px; background: rgba(10,16,44,.62); box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5); }
-  .adm-look-vn .adm-row:hover { background: rgba(40,50,110,.72); box-shadow: inset 0 0 0 2px #ffd678; }
-  .adm-look-vn .adm-row.adm-pinned { box-shadow: inset 0 0 0 2px rgba(255,214,120,.85); }
-  .adm-look-vn .adm-rn { color: #fff; }
-  .adm-look-vn .adm-menu, .adm-look-vn .adm-form { background: rgba(10,14,36,.8); margin: 0 -12px; }
-  .adm-look-vn .adm-sug { margin-left: 0; margin-right: 0; }
-  .adm-look-vn .adm-find { background: rgba(10,14,36,.84); border-bottom: 1px solid rgba(255,214,120,.3); }
-  .adm-look-vn .adm-compose { background: rgba(10,14,36,.86); border-top: 1px solid rgba(255,214,120,.4); }
-  .adm-look-vn .adm-ta { border-radius: 8px; background: rgba(10,16,44,.85); border-color: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5); color: #f0f2ff; }
-  .adm-look-vn .adm-ta:focus { box-shadow: inset 0 0 0 1.5px #ffd678; }
-  .adm-look-vn .adm-tb { background: rgba(10,16,44,.7); border-color: rgba(255,214,120,.22); color: #dfe4ff; }
-  .adm-look-vn .adm-btn.adm-pri { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
-  .adm-look-vn .adm-btn.adm-pri:hover { color: #3a2a08; }
-  .adm-look-vn .adm-sendbtn { border-radius: 8px; }
-  .adm-look-vn .adm-sendbtn::after { content: ' ▶'; font-size: 10px; }
-  .adm-look-vn .adm-newpill { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; box-shadow: 0 3px 10px rgba(0,0,0,.4); }
-  .adm-look-vn .adm-jump { background: #141a40; color: #ffd678; box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 3px 10px rgba(0,0,0,.45); }
-  .adm-look-vn .adm-launch { background: linear-gradient(180deg, #2b2f6e, #141a40); color: #ffd678; box-shadow: 0 0 0 2px rgba(255,214,120,.5), 0 4px 16px rgba(0,0,0,.5); }
-
   /* ---- 1.5.1: your own picture behind the chat (Options > Background) ---- */
   /* behind the messages / the list (not the bars): the whole picture, the space around it in the picture's own edge colour */
   .adm-root.adm-bgpic .adm-sw, .adm-root.adm-bgpic .adm-list {
@@ -574,9 +512,13 @@
   .adm-hasbg.adm-look-classic .adm-mine .adm-b { background: linear-gradient(rgba(var(--color-blue), .25), rgba(var(--color-blue), .25)), rgb(var(--color-foreground, 21,31,46)); }
   .adm-hasbg.adm-look-classic .adm-row { background: rgba(var(--color-foreground, 21,31,46), .82); }
   .adm-hasbg.adm-look-classic .adm-row:hover { background: rgb(var(--color-foreground, 21,31,46)); }
-  .adm-hasbg.adm-look-vn .adm-row { background: rgba(10,16,44,.84); }
-  .adm-hasbg.adm-look-vn .adm-b { background: rgba(10,16,44,.9); }
-  .adm-hasbg.adm-look-vn .adm-mine .adm-b { background: rgba(46,20,54,.9); }
+
+  /* ---- 1.5.2: a newer version is out ---- */
+  .adm-launch.adm-newver::after { content: '⬆'; position: absolute; left: -4px; top: -4px; width: 19px; height: 19px; border-radius: 50%; box-sizing: border-box;
+    background: rgb(var(--color-green, 123,213,85)); color: #fff; font: 700 12px/19px Overpass, sans-serif; text-align: center; box-shadow: 0 0 0 2px rgb(var(--color-background, 11,22,34)); }
+  .adm-updrow { flex-wrap: wrap; }
+  .adm-updrow .adm-updgo { text-decoration: none; display: inline-flex; align-items: center; height: 30px; padding: 0 10px; box-sizing: border-box; }
+  .adm-updrow .adm-updnote { opacity: .85; }
 
   /* phones: above AniList's own round menu button (bottom right) */
   @media (max-width: 760px) {
@@ -652,8 +594,8 @@
     }, true);
   }
   // 1.5: the look of the chat (Options > Look)
-  const LOOKS = [['vn', 'Visual Novel'], ['classic', 'Classic']];
-  const lookNow = () => (LOOKS.some(l => l[0] === ui.look) ? ui.look : 'vn');
+  const LOOKS = [['classic', 'Classic']]; // 1.5.0 / 1.5.1 also had a 'vn' look (taken out in 1.5.2); a saved 'vn' counts as classic
+  const lookNow = () => (LOOKS.some(l => l[0] === ui.look) ? ui.look : 'classic');
   function applyLook() { for (const [k] of LOOKS) rootEl.classList.toggle('adm-look-' + k, lookNow() === k); }
   // 1.5.1: your own picture behind the chat. It stays in this browser (made smaller, saved next to your own sounds).
   let bgUrl = '', bgCol = '', bgNote = '', bgInput = null;
@@ -667,7 +609,7 @@
     for (const k of ['dark', 'light', 'anilist']) rootEl.classList.toggle('adm-bg-' + k, mode === k);
     rootEl.classList.toggle('adm-bgfill', pic && ui.bgFit === 'fill');
     if (mode === 'anilist') {
-      // the site theme's own colours (the Visual Novel look replaces them inside the chat, so they are read from the page)
+      // the site theme's own colours (read from the page itself)
       try {
         const cs = getComputedStyle(document.body);
         for (const [from, to] of [['--color-background', '--adm-site-bg'], ['--color-text', '--adm-site-text']]) {
@@ -769,6 +711,7 @@
     ui.open = open; saveUi();
     panel.hidden = !open;
     if (open) {
+      checkUpdate();
       place();
       if (ui.thread && threads.includes(ui.thread)) openThread(ui.thread);
       else showList();
@@ -1392,18 +1335,41 @@
     return false;
   };
   let upd = store.get('adm:upd', null);
-  async function checkUpdate() {
+  // force = the "Check for updates" button (asks GitHub now). Returns true when GitHub answered.
+  async function checkUpdate(force) {
     const u = store.get('adm:upd', null) || {};
-    if (u.at && Date.now() - u.at < 3600e3) { upd = u; return; }
+    if (!force && u.at && Date.now() - u.at < 3600e3) { upd = u; showNewVer(); return true; }
     store.set('adm:upd', Object.assign(u, { at: Date.now() })); // the other tabs don't ask too
     try {
-      const r = await fetch(REPO_RAW + 'version.json', { cache: 'no-store' });
-      if (!r.ok) return;
+      const r = await fetch(REPO_RAW + 'version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return false;
       const j = await r.json();
       upd = { at: Date.now(), v: String(j.version || ''), notes: String(j.notes || '') };
       store.set('adm:upd', upd);
-      renderHead();
-    } catch (e) {}
+      renderHead(); showNewVer();
+      return true;
+    } catch (e) { return false; }
+  }
+  const hasNewVer = () => !!(upd && upd.v && newer(upd.v, VERSION));
+  // 1.5.2: a newer version also puts a small green arrow on the round chat button (seen without opening the chat)
+  function showNewVer() { if (launch) { launch.classList.toggle('adm-newver', hasNewVer()); launch.title = hasNewVer() ? 'Messages - version ' + upd.v + ' is out (open the chat, press the green arrow)' : 'Messages'; } }
+  const updLink = (cls, text) => el('a', { class: cls, href: REPO_RAW + 'anilist-dms.user.js', target: '_blank', rel: 'noopener',
+    title: 'Opens the script: press Update in Tampermonkey, then reload AniList.' }, text);
+  let updNote = '', updBusy = false;
+  async function checkNow() {
+    if (updBusy) return;
+    updBusy = true; updNote = 'Checking…';
+    if (ui.open && !T) renderList();
+    const ok = await checkUpdate(true);
+    updBusy = false;
+    updNote = !ok ? 'Could not reach GitHub. Try again in a moment.' : hasNewVer() ? '' : 'You have the newest version.';
+    if (ui.open && !T) renderList();
+  }
+  function updRow() {
+    return el('div', { class: 'adm-size adm-looks adm-updrow' }, 'Version ' + VERSION,
+      el('button', { class: 'adm-btn adm-updcheck', type: 'button', disabled: updBusy, title: 'Ask GitHub now if there is a newer version', onclick: checkNow }, 'Check for updates'),
+      hasNewVer() ? updLink('adm-btn adm-pri adm-updgo', 'Update to ' + upd.v) : null,
+      updNote ? el('span', { class: 'adm-note adm-updnote' }, updNote) : null);
   }
   function updBtn() {
     if (!upd || !upd.v || !newer(upd.v, VERSION)) return null;
@@ -1471,6 +1437,7 @@
       checkDropbox();
       const tick = (key, label) => el('label', {}, el('input', { type: 'checkbox', checked: ui[key], onchange: e => { ui[key] = e.target.checked; saveUi(); } }), label);
       list.append(el('div', { class: 'adm-menu' },
+        updRow(),
         tick('enterSends', 'Enter sends (Shift+Enter = new line). Off: Ctrl+Enter sends'),
         tick('smartPaste', 'Pasting a GIF, picture, video or YouTube link adds it as a picture / player'),
         ui.pos || ui.w || ui.h ? el('button', { class: 'adm-btn', type: 'button', style: 'align-self:flex-start', onclick: () => {
@@ -1480,12 +1447,9 @@
           ...[[1, 'Normal'], [1.15, 'Big'], [1.3, 'Bigger'], [1.5, 'Biggest']].map(([v, name]) =>
             el('button', { class: 'adm-btn' + ((ui.textSize || 1) === v ? ' adm-pri' : ''), type: 'button', title: name, style: 'font-size:' + (12 * v) + 'px',
               onclick: () => { ui.textSize = v; saveUi(); rootEl.style.setProperty('--adm-fs', v); renderList(); } }, 'A'))),
-        el('div', { class: 'adm-size adm-looks' }, 'Look',
-          ...LOOKS.map(([k, name]) => el('button', { class: 'adm-btn' + (lookNow() === k ? ' adm-pri' : ''), type: 'button',
-            onclick: () => { ui.look = k; saveUi(); applyLook(); renderList(); } }, name))),
         el('div', { class: 'adm-size adm-looks adm-bgmodes' }, 'Background',
           ...BG_MODES.filter(m => m[0] !== 'pic').map(([k, name]) => el('button', { class: 'adm-btn' + (bgMode() === k ? ' adm-pri' : ''), type: 'button',
-            title: { look: 'The background of the look you picked', dark: 'A plain dark background', light: 'A plain light background', anilist: "The background colour of AniList's own theme" }[k],
+            title: { look: 'The normal background', dark: 'A plain dark background', light: 'A plain light background', anilist: "The background colour of AniList's own theme" }[k],
             onclick: () => { ui.bgMode = k; saveUi(); applyBg(); renderList(); } }, name))),
         el('div', { class: 'adm-size adm-looks adm-bgopt', style: 'margin-left:22px' },
           el('button', { class: 'adm-btn adm-bgpick' + (bgMode() === 'pic' ? ' adm-pri' : ''), type: 'button', title: 'A picture from this device behind the chat. It stays in this browser.',
@@ -2507,6 +2471,7 @@
     renderBadge();
     askMe().then(addDefaults).then(() => pollAll(true));
     checkUpdate();
+    setInterval(() => checkUpdate(), 20 * 60e3); // itself at most once an hour, shared by every tab
     setInterval(checkUpdate, 20 * 60e3);
     setInterval(() => pollAll(false), 5000);
     document.addEventListener('visibilitychange', () => {

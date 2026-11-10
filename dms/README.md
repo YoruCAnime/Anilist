@@ -10,7 +10,6 @@ Your private AniList message chats as DMs: a small chat button in the bottom-rig
 - Click a picture or video to see it big
 - Drag the top bar to move the chat, drag an edge to resize; click the top bar to hide it (the chat button brings it back)
 - Text size in ⋯
-- **Visual Novel look**: messages as dialogue boxes with name plates under a starry sky. Prefer the old one? ⋯ > Look > Classic
 - **Background** in ⋯: Default, Dark, Light, AniList (your site theme's colour) or **your own picture** (shown whole, with a Darken slider; it stays in your browser)
 - New messages pop in, and a ↓ button jumps back to the newest message when you have scrolled up
 - **Search** a chat: 🔍 in the top bar or Ctrl+F (Enter = older match, **Older** searches further back)
@@ -39,4 +38,4 @@ Your private AniList message chats as DMs: a small chat button in the bottom-rig
    **[Tampermonkey](https://addons.mozilla.org/android/addon/tampermonkey/)** from its add-ons.
 2. Open the **[install link](https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js)** in Firefox and tap **Install**.
 
-Updates: a green ⬆ shows in the chat's top bar when there is a new version. Click it and press **Update**.
+Updates: a green ⬆ shows on the chat button and in the chat's top bar when there is a new version. Click it and press **Update**. You can also ask any time: ⋯ > **Check for updates**.
