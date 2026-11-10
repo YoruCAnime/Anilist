@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.4.3
+// @version      1.5.0
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.4.3'; // the same as @version above
+  const VERSION = '1.5.0'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -40,7 +40,7 @@
     del(k) { try { localStorage.removeItem(k); } catch (e) {} },
   };
   const touch = matchMedia('(pointer: coarse)').matches;
-  const ui = Object.assign({ open: false, thread: 0, big: false, enterSends: !touch, smartPaste: true, preview: true, min: false, sound: true, soundPick: 'new', volume: 0.15, textSize: 1 }, store.get('adm:ui', {}));
+  const ui = Object.assign({ open: false, thread: 0, big: false, enterSends: !touch, smartPaste: true, preview: true, min: false, sound: true, soundPick: 'new', volume: 0.15, textSize: 1, look: 'vn' }, store.get('adm:ui', {}));
   const saveUi = () => store.set('adm:ui', ui);
   let info = store.get('adm:info', {});
   // your conversations (1.0 / 1.1 only saved the list once you changed it: take it from what they remembered)
@@ -464,6 +464,92 @@
   .adm-kao .adm-e { font-size: 13px; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .adm-e:hover { background: rgba(var(--color-text), .12); }
 
+  /* ---- 1.5: new messages pop in ---- */
+  @keyframes adm-pop { from { opacity: 0; transform: translateY(14px) scale(.88); } }
+  .adm-m.adm-pop .adm-b { animation: adm-pop .34s cubic-bezier(.2, .9, .3, 1.35); transform-origin: left bottom; }
+  .adm-m.adm-mine.adm-pop .adm-b { transform-origin: right bottom; }
+  @media (prefers-reduced-motion: reduce) { .adm-m.adm-pop .adm-b { animation: none; } }
+  /* the messages + the buttons floating over them */
+  .adm-sw { flex: 1 1 0; min-height: 70px; display: flex; flex-direction: column; position: relative; }
+  .adm-jump { position: absolute; right: 12px; bottom: 10px; z-index: 3; width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+    background: rgb(var(--color-background)); color: rgb(var(--color-blue)); font: 700 17px/34px Overpass, sans-serif;
+    box-shadow: 0 3px 10px rgba(0,0,0,.4), 0 0 0 1px rgba(var(--color-text), .18); animation: adm-fade .15s ease-out; }
+  .adm-jump:hover { filter: brightness(1.25); }
+  .adm-jump[hidden] { display: none; }
+  /* search in the open conversation */
+  .adm-find { flex: none; display: flex; align-items: center; gap: 5px; padding: 6px 10px; background: rgba(var(--color-text), .07); font-size: 12.5px; }
+  .adm-find[hidden] { display: none; }
+  .adm-find input { flex: 1; min-width: 0; font: inherit; font-size: 13.5px; padding: 5px 9px; border-radius: 6px; border: 1px solid rgba(var(--color-text), .2);
+    background: rgb(var(--color-background)); color: rgb(var(--color-text)); outline: none; }
+  .adm-find input:focus { border-color: rgb(var(--color-blue)); }
+  .adm-find-n { opacity: .75; white-space: nowrap; min-width: 40px; text-align: center; }
+  .adm-find .adm-btn { padding: 3px 8px; }
+  .adm-find .adm-btn[hidden] { display: none; }
+  .adm-m.adm-hit-cur .adm-b { outline: 2px solid #ffd54a; outline-offset: 2px; }
+  mark.adm-mark { background: #ffd54a; color: #1a1400; border-radius: 3px; padding: 0 1px; }
+  /* pinned conversations */
+  .adm-pinb { position: absolute; right: 28px; top: 4px; display: none; font-size: 11.5px; opacity: .6; border: 0; background: none; color: inherit; cursor: pointer; padding: 2px 5px; }
+  .adm-row:hover .adm-pinb { display: block; }
+  .adm-pinb:hover { opacity: 1; }
+  .adm-pinmark { flex: none; font-size: 11px; }
+
+  /* ---- 1.5: the Visual Novel look (Options > Look) ---- */
+  .adm-look-vn { --color-blue: 255,214,120; --color-text: 226,230,250; --color-foreground: 22,26,60; --color-background: 12,15,40; }
+  .adm-look-vn .adm-panel { border-radius: 14px; background: linear-gradient(180deg, #2b2456 0%, #3d2f63 35%, #1b2340 100%);
+    box-shadow: 0 12px 44px rgba(0,0,0,.55), 0 0 0 1px rgba(255,214,120,.45), inset 0 0 0 3px rgba(10,14,36,.6); }
+  .adm-look-vn .adm-head { background: rgba(10,14,36,.84); border-bottom: 1px solid rgba(255,214,120,.5); }
+  .adm-look-vn .adm-title { color: #fff3d6; letter-spacing: .04em; }
+  .adm-look-vn .adm-scroll, .adm-look-vn .adm-list { padding-left: 12px; padding-right: 12px; background-size: 260px 200px;
+    background-image: radial-gradient(1.3px 1.3px at 20px 30px, rgba(255,255,255,.55), transparent), radial-gradient(1px 1px at 90px 12px, rgba(255,255,255,.45), transparent),
+      radial-gradient(1.5px 1.5px at 160px 50px, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 220px 20px, rgba(255,255,255,.4), transparent),
+      radial-gradient(1px 1px at 60px 90px, rgba(255,255,255,.4), transparent), radial-gradient(1.3px 1.3px at 130px 110px, rgba(255,255,255,.35), transparent),
+      radial-gradient(1px 1px at 200px 130px, rgba(255,255,255,.45), transparent), radial-gradient(1.4px 1.4px at 30px 150px, rgba(255,255,255,.35), transparent),
+      radial-gradient(1.2px 1.2px at 240px 170px, rgba(255,255,255,.35), transparent), radial-gradient(1px 1px at 100px 180px, rgba(255,255,255,.4), transparent); }
+  .adm-look-vn .adm-scroll { padding-bottom: 18px; }
+  .adm-look-vn .adm-av { box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+  .adm-look-vn .adm-day { opacity: 1; color: #ffe6ad; font-style: italic; letter-spacing: .06em; }
+  .adm-look-vn .adm-day::before { content: '──\\00a0\\00a0'; opacity: .6; }
+  .adm-look-vn .adm-day::after { content: '\\00a0\\00a0──'; opacity: .6; }
+  .adm-look-vn .adm-m { margin-top: 20px; }
+  .adm-look-vn .adm-m.adm-cont { margin-top: 5px; }
+  .adm-look-vn .adm-b, .adm-look-vn .adm-m:not(.adm-mine) .adm-b, .adm-look-vn .adm-mine .adm-b { border-radius: 10px; }
+  .adm-look-vn .adm-b { padding: 11px 13px 8px; background: rgba(10,16,44,.82); min-width: 130px; --color-text: 240,242,255;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 0 4px rgba(120,150,255,.28), 0 4px 14px rgba(0,0,0,.35); }
+  .adm-look-vn .adm-mine .adm-b { background: rgba(46,20,54,.84); box-shadow: inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 0 4px rgba(255,140,190,.3), 0 4px 14px rgba(0,0,0,.35); }
+  .adm-look-vn .adm-origin .adm-b { border: 0; box-shadow: inset 0 0 0 2px rgba(255,214,120,.85), inset 0 0 0 4px rgba(255,214,120,.2), 0 4px 14px rgba(0,0,0,.35); }
+  .adm-look-vn .adm-livemsg .adm-b { box-shadow: inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 0 4px rgba(245,197,66,.45), 0 4px 14px rgba(0,0,0,.35); }
+  /* the speaker's name plate on top of the box (yours too) */
+  .adm-look-vn .adm-meta .adm-n, .adm-look-vn .adm-mine .adm-meta .adm-n { display: block; position: absolute; top: -12px; left: 12px; padding: 1px 12px 0; border-radius: 6px;
+    font-size: calc(12px * var(--adm-fs, 1)); line-height: 1.6; color: #fff; background: linear-gradient(180deg, #5d7dff, #3b54c8);
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.85), 0 2px 6px rgba(0,0,0,.4); max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .adm-look-vn .adm-mine .adm-meta .adm-n { left: auto; right: 12px; background: linear-gradient(180deg, #ff7eb6, #d0468a); }
+  .adm-look-vn .adm-cont .adm-meta .adm-n, .adm-look-vn .adm-mine.adm-cont .adm-meta .adm-n { display: none; }
+  /* the hover buttons sit under the box (the name plate has the top) */
+  .adm-look-vn .adm-acts { top: auto; bottom: -14px; box-shadow: 0 0 0 1.5px rgba(255,255,255,.6), 0 2px 8px rgba(0,0,0,.45); }
+  .adm-look-vn .adm-heart { box-shadow: 0 0 0 1.5px rgba(255,255,255,.7), 0 1px 4px rgba(0,0,0,.3); }
+  .adm-look-vn .adm-msgs > .adm-m:last-child .adm-b { padding-bottom: 15px; }
+  .adm-look-vn .adm-msgs > .adm-m:last-child .adm-b::after { content: '▼'; position: absolute; right: 10px; bottom: 5px; font-size: 9px; line-height: 1; color: #ffd678;
+    animation: adm-vn 1s ease-in-out infinite; pointer-events: none; }
+  @keyframes adm-vn { 50% { transform: translateY(3px); opacity: .4; } }
+  .adm-look-vn .adm-row { margin: 6px 0; border-radius: 10px; background: rgba(10,16,44,.62); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35); }
+  .adm-look-vn .adm-row:hover { background: rgba(40,50,110,.72); box-shadow: inset 0 0 0 2px #ffd678; }
+  .adm-look-vn .adm-row.adm-pinned { box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.75); }
+  .adm-look-vn .adm-rn { color: #fff; }
+  .adm-look-vn .adm-menu, .adm-look-vn .adm-form { background: rgba(10,14,36,.8); margin: 0 -12px; }
+  .adm-look-vn .adm-sug { margin-left: 0; margin-right: 0; }
+  .adm-look-vn .adm-find { background: rgba(10,14,36,.84); border-bottom: 1px solid rgba(255,214,120,.3); }
+  .adm-look-vn .adm-compose { background: rgba(10,14,36,.86); border-top: 1px solid rgba(255,214,120,.4); }
+  .adm-look-vn .adm-ta { border-radius: 8px; background: rgba(10,16,44,.85); border-color: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.55); color: #f0f2ff; }
+  .adm-look-vn .adm-ta:focus { box-shadow: inset 0 0 0 1.5px #ffd678; }
+  .adm-look-vn .adm-tb { background: rgba(10,16,44,.7); border-color: rgba(255,255,255,.25); color: #dfe4ff; }
+  .adm-look-vn .adm-btn.adm-pri { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; font-weight: 700; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8); }
+  .adm-look-vn .adm-btn.adm-pri:hover { color: #3a2a08; }
+  .adm-look-vn .adm-sendbtn { border-radius: 8px; }
+  .adm-look-vn .adm-sendbtn::after { content: ' ▶'; font-size: 10px; }
+  .adm-look-vn .adm-newpill { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 3px 10px rgba(0,0,0,.4); }
+  .adm-look-vn .adm-jump { background: #141a40; color: #ffd678; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 3px 10px rgba(0,0,0,.45); }
+  .adm-look-vn .adm-launch { background: linear-gradient(180deg, #2b2f6e, #141a40); color: #ffd678; box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 4px 16px rgba(0,0,0,.5); }
+
   /* phones: above AniList's own round menu button (bottom right) */
   @media (max-width: 760px) {
     .adm-root { right: 12px; bottom: 66px; }
@@ -471,6 +557,9 @@
     .adm-panel, .adm-big .adm-panel { position: fixed; left: 6px; right: 6px; top: 56px; bottom: max(116px, calc(var(--adm-kb, 0px) + 6px)); width: auto; height: auto; }
     .adm-rz { display: none; }
     .adm-b { max-width: 88%; }
+    /* 1.5: one more button in the top bar (search): a little tighter, so the name keeps its room */
+    .adm-head { gap: 4px; padding-left: 10px; padding-right: 6px; }
+    .adm-hb { width: 26px; }
   }`;
 
   // ---- emoji lists ----------------------------------------------------------------
@@ -500,6 +589,7 @@
     panel = el('div', { class: 'adm-panel', hidden: true }, headEl, bodyEl);
     rootEl = el('div', { class: 'adm-root' + (ui.big ? ' adm-big' : '') + (ui.min ? ' adm-min' : '') }, panel, launch);
     rootEl.style.setProperty('--adm-fs', ui.textSize || 1);
+    applyLook();
     // phones: the on-screen keyboard covers the page without resizing it, so the chat moves up by what it hides
     if (window.visualViewport && !rootEl._kbFit) {
       const vv = window.visualViewport;
@@ -532,6 +622,10 @@
       if (e.target.closest && !e.target.closest('.adm-b')) bodyEl.querySelectorAll('.adm-tap').forEach(b => b.classList.remove('adm-tap'));
     }, true);
   }
+  // 1.5: the look of the chat (Options > Look)
+  const LOOKS = [['vn', 'Visual Novel'], ['classic', 'Classic']];
+  const lookNow = () => (LOOKS.some(l => l[0] === ui.look) ? ui.look : 'vn');
+  function applyLook() { for (const [k] of LOOKS) rootEl.classList.toggle('adm-look-' + k, lookNow() === k); }
   function svgChat() {
     const ns = 'http://www.w3.org/2000/svg';
     const s = document.createElementNS(ns, 'svg');
@@ -1258,6 +1352,9 @@
           ...[[1, 'Normal'], [1.15, 'Big'], [1.3, 'Bigger'], [1.5, 'Biggest']].map(([v, name]) =>
             el('button', { class: 'adm-btn' + ((ui.textSize || 1) === v ? ' adm-pri' : ''), type: 'button', title: name, style: 'font-size:' + (12 * v) + 'px',
               onclick: () => { ui.textSize = v; saveUi(); rootEl.style.setProperty('--adm-fs', v); renderList(); } }, 'A'))),
+        el('div', { class: 'adm-size adm-looks' }, 'Look',
+          ...LOOKS.map(([k, name]) => el('button', { class: 'adm-btn' + (lookNow() === k ? ' adm-pri' : ''), type: 'button',
+            onclick: () => { ui.look = k; saveUi(); applyLook(); renderList(); } }, name))),
         el('div', { class: 'adm-sound' },
           el('label', {}, el('input', { type: 'checkbox', checked: ui.sound, onchange: e => { ui.sound = e.target.checked; saveUi(); if (ui.sound) nya(true); } }),
             'Sound for new messages ("…nya.")'),
@@ -1278,15 +1375,17 @@
         el('div', { style: 'opacity:.6' }, 'Your conversations, drafts, sounds and what you have read are kept in this browser.')));
     }
     if (listState.adding) list.append(addForm());
-    const order = threads.slice().sort((a, b) => ((info[b] || {}).lastT || 0) - ((info[a] || {}).lastT || 0));
+    const pins = pinsNow();
+    const order = threads.slice().sort((a, b) => (pins.includes(b) - pins.includes(a)) || (((info[b] || {}).lastT || 0) - ((info[a] || {}).lastT || 0)));
     if (!order.length && !listState.adding) list.append(el('div', { class: 'adm-empty' }, 'No conversations yet.', el('br'),
       el('button', { class: 'adm-btn adm-pri', type: 'button', style: 'margin-top:10px', onclick: () => { listState.adding = true; renderList(); } }, '+ Add a conversation')));
     for (const id of order) {
       const i = info[id] || {};
       const o = otherOf(i) || { name: 'Loading…', av: '' };
       const n = unreadOf(id);
-      const row = el('div', { class: 'adm-row' + (n ? ' adm-unread' : ''), title: 'Open the conversation with ' + o.name, onclick: e => {
-        if (e.target.closest('.adm-x, .adm-ask')) return;
+      const pinned = pins.includes(id);
+      const row = el('div', { class: 'adm-row' + (n ? ' adm-unread' : '') + (pinned ? ' adm-pinned' : ''), title: 'Open the conversation with ' + o.name, onclick: e => {
+        if (e.target.closest('.adm-x, .adm-ask, .adm-pinb')) return;
         openThread(id);
       } });
       if (listState.removing === id) {
@@ -1298,14 +1397,23 @@
         row.append(...[
           el('span', { class: 'adm-av', style: avStyle(o.av) }),
           el('div', { class: 'adm-rb' },
-            el('div', { class: 'adm-rt' }, el('span', { class: 'adm-rn' }, o.name), el('span', { class: 'adm-rtime' }, i.lastT ? ago(i.lastT) : '')),
+            el('div', { class: 'adm-rt' }, pinned ? el('span', { class: 'adm-pinmark', title: 'Pinned to the top' }, '📌') : null,
+              el('span', { class: 'adm-rn' }, o.name), el('span', { class: 'adm-rtime' }, i.lastT ? ago(i.lastT) : '')),
             el('div', { class: 'adm-rs' }, i.snip ? (mine ? 'You: ' : '') + i.snip : (i.error || ''))),
           n ? el('span', { class: 'adm-dot' }, n > 99 ? '99+' : n) : null,
+          el('button', { class: 'adm-pinb', type: 'button', title: pinned ? 'Unpin' : 'Pin to the top of the list', onclick: () => togglePin(id) }, pinned ? 'Unpin' : '📌'),
           el('button', { class: 'adm-x', type: 'button', title: 'Remove from this panel', onclick: () => { listState.removing = id; renderList(); } }, '×')].filter(Boolean));
       }
       list.append(row);
     }
     bodyEl.append(list);
+  }
+  // 1.5: pinned conversations stay at the top of the list
+  const pinsNow = () => store.get('adm:pins', []);
+  function togglePin(id) {
+    const p = pinsNow();
+    store.set('adm:pins', p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+    renderList();
   }
   async function addThread(id) {
     const d = await gql(`query($id:Int){Activity(id:$id){${ACT}}}`, { id });
@@ -1381,6 +1489,7 @@
     store.set('adm:threads', threads);
     delete info[id]; store.set('adm:info', info);
     store.del('adm:m:' + id); store.del('adm:draft:' + id);
+    store.set('adm:pins', pinsNow().filter(x => x !== id));
     listState.removing = 0;
     renderList(); renderBadge();
   }
@@ -1499,6 +1608,7 @@
         el('a', { class: 'adm-av', href: prof, style: avStyle(o.av) }),
         el('a', { href: prof, title: o.name + "'s profile" }, o.name),
         i.private ? el('span', { title: 'Private message', style: 'opacity:.5;font-size:12px' }, '🔒') : null),
+      hb('🔍', 'Search this conversation (Ctrl+F)', () => toggleFind(T), { style: 'font-size:13px' }),
       liveBtn(i),
       el('a', { class: 'adm-hb', href: '/activity/' + T.id, title: 'Open this conversation as a page' }, '↗'),
       updBtn(),
@@ -1512,7 +1622,7 @@
     ui.thread = id; saveUi();
     const c = cacheOf(id);
     const t = T = { id, msgs: [], byId: new Map(), els: new Map(), shown: SHOW_LAST, count: c.count || 0, minPage: 0, fresh: false,
-                    busy: false, again: false, olderBusy: false, error: '', stick: true, newCount: 0 };
+                    busy: false, again: false, olderBusy: false, error: '', stick: true, newCount: 0, popT: 0, popSeen: new Set() };
     setMsgs(t, c.msgs || []);
     buildConvo(t);
     convoHead();
@@ -1536,18 +1646,22 @@
     const status = el('div', { class: 'adm-status' });
     scroll.append(olderBar, msgsEl, status);
     const pill = el('button', { class: 'adm-newpill', type: 'button', hidden: true, onclick: () => { t.stick = true; stickBottom(t, true); } });
+    const jump = el('button', { class: 'adm-jump', type: 'button', hidden: true, title: 'Jump to the newest message', onclick: () => { t.stick = true; stickBottom(t, true); } }, '↓');
+    t.jump = jump;
+    const find = buildFind(t);
 
     // the box you type in, with AniList's toolbar (class markdown-editor, so the GIF Picker adds its GIF button too)
     const ta = el('textarea', { class: 'adm-ta', rows: 1, placeholder: 'Message ' + ((otherOf(info[t.id]) || {}).name || '') + '…' });
     ta.value = store.get('adm:draft:' + t.id, '');
     const preview = el('div', { class: 'adm-preview', hidden: true });
     const hint = el('span', { class: 'adm-hint' }, ui.enterSends ? 'Enter sends · Shift+Enter new line' : 'Ctrl+Enter sends');
-    const send = el('button', { class: 'adm-btn adm-pri', type: 'button', onclick: () => sendMsg(t) }, 'Send');
+    const send = el('button', { class: 'adm-btn adm-pri adm-sendbtn', type: 'button', onclick: () => sendMsg(t) }, 'Send');
     const emoji = buildEmoji(t);
     Object.assign(t, { scroll, olderBar, msgsEl, status, pill, ta, preview, hint, sendBtn: send, emoji });
     const tools = buildTools(t);
     const compose = el('div', { class: 'adm-compose' }, emoji, tools, ta, preview, el('div', { class: 'adm-send-row' }, hint, send));
-    t.box = el('div', { class: 'adm-convo' }, scroll, pill, compose);
+    t.box = el('div', { class: 'adm-convo' }, find, el('div', { class: 'adm-sw' }, scroll, pill, jump), compose);
+    t.box.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') { e.preventDefault(); toggleFind(t, true); } });
     bodyEl.textContent = '';
     bodyEl.append(t.box);
 
@@ -1571,6 +1685,7 @@
     scroll.addEventListener('scroll', () => {
       if (ui.min || !scroll.clientHeight) return; // hidden: keep what it was
       t.stick = scroll.scrollTop + scroll.clientHeight > scroll.scrollHeight - 60;
+      jump.hidden = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 180;
       if (t.stick && !ui.min) { if (t.newCount) newPill(t, 0); markSeen(t.id, t.msgs); }
     }, { passive: true });
     // pictures that finish loading make the list taller: stay at the bottom if you were there
@@ -1582,6 +1697,133 @@
     if (ta.value) showPreview(t);
   }
 
+  // ---- 1.5: search in the open conversation (the messages loaded so far; "Older" loads more) ----
+  const findText = m => decEmoji(m.md != null ? String(m.md) : String(m.html || '').replace(/<[^>]+>/g, ' '))
+    .replace(/(?:img\d*%?|webm|youtube)\s*\([^)]*\)/gi, ' ').toLowerCase();
+  function buildFind(t) {
+    const input = el('input', { type: 'text', placeholder: 'Search this conversation…' });
+    const n = el('span', { class: 'adm-find-n' });
+    const more = el('button', { class: 'adm-btn', type: 'button', hidden: true, title: 'Load older messages and search them too', onclick: async () => {
+      more.disabled = true; more.textContent = 'Loading…';
+      const had = t.find.hits.length;
+      await findOlder(t);
+      if (T !== t) return;
+      more.disabled = false; more.textContent = 'Older';
+      runFind(t, false);
+      const f = t.find;
+      if (f.hits.length > had) { f.at = f.hits.length - had - 1; showFind(t, true); } // on to the newest of the matches just found
+      f.input.focus();
+    } }, 'Older');
+    const box = el('div', { class: 'adm-find', hidden: true }, input, n,
+      el('button', { class: 'adm-btn', type: 'button', title: 'Older match (Enter)', onclick: () => findStep(t, -1) }, '↑'),
+      el('button', { class: 'adm-btn', type: 'button', title: 'Newer match (Shift+Enter)', onclick: () => findStep(t, 1) }, '↓'),
+      more,
+      el('button', { class: 'adm-btn', type: 'button', title: 'Close the search (Esc)', onclick: () => toggleFind(t, false) }, '×'));
+    let timer = 0;
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => runFind(t, true), 150); });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); findStep(t, e.shiftKey ? 1 : -1); }
+    });
+    box.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleFind(t, false); } });
+    t.find = { box, input, n, more, hits: [], at: -1, q: '' };
+    return box;
+  }
+  // two more pages of older messages for the search (they stay folded away under "Show older" until a match is opened)
+  async function findOlder(t) {
+    if (!t.fresh || t.minPage <= 1 || t.olderBusy) return;
+    t.olderBusy = true;
+    try {
+      const b = t.minPage - 1, a = Math.max(1, b - 1), id = t.id;
+      const d = await gql(`query{a:Page(page:${a},perPage:${PER}){activityReplies(activityId:${id}){${F}}} b:Page(page:${b},perPage:${PER}){activityReplies(activityId:${id}){${F}}}}`);
+      if (T !== t) return;
+      const got = [...d.a.activityReplies, ...(a !== b ? d.b.activityReplies : [])].filter(Boolean).map(slim).filter(m => !t.byId.has(m.id));
+      setMsgs(t, [...got, ...t.msgs]);
+      t.minPage = a;
+    } catch (e) {
+      if (T === t) t.find.n.textContent = 'could not load';
+    } finally {
+      t.olderBusy = false;
+    }
+  }
+  function toggleFind(t, on) {
+    const f = t && t.find;
+    if (!f) return;
+    on = on == null ? f.box.hidden : on;
+    f.box.hidden = !on;
+    if (on) { f.input.focus(); f.input.select(); runFind(t, true); }
+    else { f.input.value = ''; runFind(t, false); if (!touch) t.ta.focus({ preventScroll: true }); }
+  }
+  function runFind(t, jumpTo) {
+    const f = t.find;
+    if (!f) return;
+    const q = f.box.hidden ? '' : f.input.value.trim().toLowerCase();
+    const cur = f.hits[f.at];
+    f.q = q;
+    const pool = [...t.msgs.filter(m => !isKeyMsg(m) && !isCopyMsg(m)), ...liveMsgsOf(t.id)].sort(byTime);
+    f.hits = q ? pool.filter(m => findText(m).includes(q)).map(m => m.id) : [];
+    f.at = f.hits.length ? (!jumpTo && f.hits.includes(cur) ? f.hits.indexOf(cur) : f.hits.length - 1) : -1;
+    showFind(t, jumpTo);
+  }
+  function findStep(t, d) {
+    const f = t.find;
+    if (!f.hits.length) return;
+    f.at = (f.at + d + f.hits.length) % f.hits.length;
+    showFind(t, true);
+  }
+  function showFind(t, scrollTo) {
+    const f = t.find;
+    f.n.textContent = f.q ? (f.hits.length ? (f.at + 1) + ' / ' + f.hits.length : 'none') : '';
+    f.more.hidden = !(f.q && t.fresh && t.minPage > 1);
+    const id = f.hits[f.at];
+    if (id != null && scrollTo) {
+      const idx = t.msgs.findIndex(m => m.id === id);
+      if (idx >= 0 && t.msgs.length - idx > t.shown) { t.shown = t.msgs.length - idx; t.stick = false; render(t); } // a match further back: show up to it
+    }
+    markFind(t, scrollTo);
+  }
+  function unmark(root) {
+    root.querySelectorAll('mark.adm-mark').forEach(k => { const p = k.parentNode; k.replaceWith(document.createTextNode(k.textContent)); p.normalize(); });
+  }
+  function markText(root, q) {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (w.nextNode()) nodes.push(w.currentNode);
+    for (const node of nodes) {
+      let n = node, i;
+      while (n && (i = n.data.toLowerCase().indexOf(q)) >= 0) {
+        const hit = n.splitText(i);
+        n = hit.data.length > q.length ? hit.splitText(q.length) : null;
+        const k = document.createElement('mark');
+        k.className = 'adm-mark';
+        hit.replaceWith(k); k.append(hit);
+      }
+    }
+  }
+  function markFind(t, scrollTo) {
+    const f = t.find;
+    if (!f) return;
+    const set = new Set(f.hits), cur = f.hits[f.at];
+    for (const [id, row] of t.els) {
+      const hit = !!f.q && set.has(id);
+      row.classList.toggle('adm-hit-cur', hit && id === cur);
+      const key = hit ? f.q + '\u0001' + row._key : '';
+      if ((row._markKey || '') === key || row._editing) continue;
+      row._markKey = key;
+      const text = row.querySelector('.adm-text');
+      unmark(text);
+      if (hit) markText(text, f.q);
+    }
+    const row = scrollTo && cur != null ? t.els.get(cur) : null;
+    if (row) {
+      t.stick = false;
+      requestAnimationFrame(() => {
+        if (T !== t) return;
+        const r = row.getBoundingClientRect(), s = t.scroll.getBoundingClientRect();
+        t.scroll.scrollBy({ top: r.top - s.top - (s.height - r.height) / 2, behavior: 'smooth' });
+      });
+    }
+  }
+
   function grow(t) {
     const ta = t.ta;
     ta.style.height = 'auto';
@@ -1589,6 +1831,7 @@
   }
   function stickBottom(t, smooth) {
     requestAnimationFrame(() => { if (T === t) t.scroll.scrollTo({ top: t.scroll.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); });
+    if (t.jump && !smooth) t.jump.hidden = true;
     newPill(t, 0);
   }
   function newPill(t, n) {
@@ -1799,7 +2042,16 @@
       if (day !== prevDay) { frag.push(el('div', { class: 'adm-day' }, day)); prevDay = day; prev = null; }
       const id = m.origin ? 'o' : m.id;
       let row = t.els.get(id);
-      if (!row) { row = msgEl(t, m); t.els.set(id, row); } else updateEl(t, row, m);
+      if (!row) {
+        row = msgEl(t, m); t.els.set(id, row);
+        // 1.5: a message newer than everything shown before pops in (not what opening / "Show older" brings)
+        if (t.popT && !m.origin && m.t >= t.popT && !t.popSeen.has(id)) {
+          const r = row;
+          r.classList.add('adm-pop');
+          r.addEventListener('animationend', e => { if (e.animationName === 'adm-pop') r.classList.remove('adm-pop'); });
+        }
+      } else updateEl(t, row, m);
+      t.popSeen.add(id);
       row.classList.toggle('adm-cont', !!prev && !m.origin && !prev.origin && prev.uid === m.uid && m.t - prev.t < GROUP_GAP);
       frag.push(row);
       prev = m;
@@ -1825,6 +2077,9 @@
     t.status.textContent = t.error || (!all.length && !live.length ? (t.fresh ? 'No replies yet. Say hi!' : 'Loading…') : '');
     t.status.classList.toggle('adm-bad', !!t.error);
     if (i.locked) { t.ta.disabled = true; t.ta.placeholder = 'This conversation is locked'; }
+    const lastT = list.length ? list[list.length - 1].t : 0;
+    if (lastT || t.fresh) t.popT = Math.max(t.popT || 0, lastT, 1);
+    if (t.find) { if (t.find.q) runFind(t, false); else markFind(t); }
   }
 
   function hideOlder(t) {
