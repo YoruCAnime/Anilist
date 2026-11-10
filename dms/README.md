@@ -11,6 +11,7 @@ Your private AniList message chats as DMs: a small chat button in the bottom-rig
 - Drag the top bar to move the chat, drag an edge to resize; click the top bar to hide it (the chat button brings it back)
 - Text size in ⋯
 - **Visual Novel look**: messages as dialogue boxes with name plates under a starry sky. Prefer the old one? ⋯ > Look > Classic
+- **Background** in ⋯: Default, Dark, Light, AniList (your site theme's colour) or **your own picture** (shown whole, with a Darken slider; it stays in your browser)
 - New messages pop in, and a ↓ button jumps back to the newest message when you have scrolled up
 - **Search** a chat: 🔍 in the top bar or Ctrl+F (Enter = older match, **Older** searches further back)
 - **Pin** chats to the top of the list (hover a chat, press 📌)

@@ -2,7 +2,7 @@
 // @name         AniList DMs
 // @namespace    exos.anilist.dms
 // @author       YoruC
-// @version      1.5.0
+// @version      1.5.1
 // @description  Your private AniList message conversations as DMs: a chat button bottom right, newest messages, a red number for new ones, live preview, emojis, likes, reply / edit / delete. Add conversations with +.
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/dms
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/dms/anilist-dms.user.js
@@ -27,7 +27,7 @@
   const CACHE_KEEP = 40;       // messages remembered per conversation for instant opening
   const GROUP_GAP = 600;       // seconds: back-to-back messages by the same person closer than this share one name / picture
 
-  const VERSION = '1.5.0'; // the same as @version above
+  const VERSION = '1.5.1'; // the same as @version above
   // YoruC's conversations: on the first start they are added for whoever is IN them (the two people of each),
   // nobody else (AniList doesn't show private messages to others, and the script checks you are one of the two).
   const DEFAULT_THREADS = [1191588367, 1186054861];
@@ -506,49 +506,77 @@
       radial-gradient(1px 1px at 200px 130px, rgba(255,255,255,.45), transparent), radial-gradient(1.4px 1.4px at 30px 150px, rgba(255,255,255,.35), transparent),
       radial-gradient(1.2px 1.2px at 240px 170px, rgba(255,255,255,.35), transparent), radial-gradient(1px 1px at 100px 180px, rgba(255,255,255,.4), transparent); }
   .adm-look-vn .adm-scroll { padding-bottom: 18px; }
-  .adm-look-vn .adm-av { box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+  .adm-look-vn .adm-av { box-shadow: 0 0 0 2px rgba(255,214,120,.5); }
   .adm-look-vn .adm-day { opacity: 1; color: #ffe6ad; font-style: italic; letter-spacing: .06em; }
   .adm-look-vn .adm-day::before { content: '──\\00a0\\00a0'; opacity: .6; }
   .adm-look-vn .adm-day::after { content: '\\00a0\\00a0──'; opacity: .6; }
   .adm-look-vn .adm-m { margin-top: 20px; }
   .adm-look-vn .adm-m.adm-cont { margin-top: 5px; }
+  .adm-look-vn .adm-m.adm-mine .adm-av { display: block; } /* 1.5.1: your own picture too, on the right */
   .adm-look-vn .adm-b, .adm-look-vn .adm-m:not(.adm-mine) .adm-b, .adm-look-vn .adm-mine .adm-b { border-radius: 10px; }
   .adm-look-vn .adm-b { padding: 11px 13px 8px; background: rgba(10,16,44,.82); min-width: 130px; --color-text: 240,242,255;
-    box-shadow: inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 0 4px rgba(120,150,255,.28), 0 4px 14px rgba(0,0,0,.35); }
-  .adm-look-vn .adm-mine .adm-b { background: rgba(46,20,54,.84); box-shadow: inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 0 4px rgba(255,140,190,.3), 0 4px 14px rgba(0,0,0,.35); }
+    box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5), inset 0 0 0 4px rgba(120,150,255,.2), 0 4px 14px rgba(0,0,0,.35); }
+  .adm-look-vn .adm-mine .adm-b { background: rgba(46,20,54,.84); box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5), inset 0 0 0 4px rgba(255,214,120,.14), 0 4px 14px rgba(0,0,0,.35); }
   .adm-look-vn .adm-origin .adm-b { border: 0; box-shadow: inset 0 0 0 2px rgba(255,214,120,.85), inset 0 0 0 4px rgba(255,214,120,.2), 0 4px 14px rgba(0,0,0,.35); }
-  .adm-look-vn .adm-livemsg .adm-b { box-shadow: inset 0 0 0 2px rgba(255,255,255,.8), inset 0 0 0 4px rgba(245,197,66,.45), 0 4px 14px rgba(0,0,0,.35); }
+  .adm-look-vn .adm-livemsg .adm-b { box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5), inset 0 0 0 4px rgba(245,197,66,.45), 0 4px 14px rgba(0,0,0,.35); }
   /* the speaker's name plate on top of the box (yours too) */
   .adm-look-vn .adm-meta .adm-n, .adm-look-vn .adm-mine .adm-meta .adm-n { display: block; position: absolute; top: -12px; left: 12px; padding: 1px 12px 0; border-radius: 6px;
-    font-size: calc(12px * var(--adm-fs, 1)); line-height: 1.6; color: #fff; background: linear-gradient(180deg, #5d7dff, #3b54c8);
-    box-shadow: 0 0 0 1.5px rgba(255,255,255,.85), 0 2px 6px rgba(0,0,0,.4); max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .adm-look-vn .adm-mine .adm-meta .adm-n { left: auto; right: 12px; background: linear-gradient(180deg, #ff7eb6, #d0468a); }
+    font-size: calc(12px * var(--adm-fs, 1)); line-height: 1.6; color: #9db4ff; background: #10153a;
+    box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 2px 6px rgba(0,0,0,.4); max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .adm-look-vn .adm-mine .adm-meta .adm-n { left: auto; right: 12px; color: #ffd678; }
   .adm-look-vn .adm-cont .adm-meta .adm-n, .adm-look-vn .adm-mine.adm-cont .adm-meta .adm-n { display: none; }
   /* the hover buttons sit under the box (the name plate has the top) */
-  .adm-look-vn .adm-acts { top: auto; bottom: -14px; box-shadow: 0 0 0 1.5px rgba(255,255,255,.6), 0 2px 8px rgba(0,0,0,.45); }
-  .adm-look-vn .adm-heart { box-shadow: 0 0 0 1.5px rgba(255,255,255,.7), 0 1px 4px rgba(0,0,0,.3); }
+  .adm-look-vn .adm-acts { top: auto; bottom: -14px; box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 2px 8px rgba(0,0,0,.45); }
+  /* ...on the side away from the next message's name plate (1.5.1) */
+  .adm-look-vn .adm-m:not(.adm-mine) .adm-acts { left: auto; right: 6px; }
+  .adm-look-vn .adm-mine .adm-acts { right: auto; left: 6px; }
+  .adm-look-vn .adm-mine .adm-b { min-width: 180px; }
+  .adm-look-vn .adm-heart { box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 1px 4px rgba(0,0,0,.3); }
   .adm-look-vn .adm-msgs > .adm-m:last-child .adm-b { padding-bottom: 15px; }
   .adm-look-vn .adm-msgs > .adm-m:last-child .adm-b::after { content: '▼'; position: absolute; right: 10px; bottom: 5px; font-size: 9px; line-height: 1; color: #ffd678;
-    animation: adm-vn 1s ease-in-out infinite; pointer-events: none; }
+    animation: adm-vn 1s ease-in-out 5; pointer-events: none; } /* blinks 5 times for a new message, then rests (an endless blink keeps the browser repainting) */
   @keyframes adm-vn { 50% { transform: translateY(3px); opacity: .4; } }
-  .adm-look-vn .adm-row { margin: 6px 0; border-radius: 10px; background: rgba(10,16,44,.62); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35); }
+  .adm-look-vn .adm-row { margin: 6px 0; border-radius: 10px; background: rgba(10,16,44,.62); box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5); }
   .adm-look-vn .adm-row:hover { background: rgba(40,50,110,.72); box-shadow: inset 0 0 0 2px #ffd678; }
-  .adm-look-vn .adm-row.adm-pinned { box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.75); }
+  .adm-look-vn .adm-row.adm-pinned { box-shadow: inset 0 0 0 2px rgba(255,214,120,.85); }
   .adm-look-vn .adm-rn { color: #fff; }
   .adm-look-vn .adm-menu, .adm-look-vn .adm-form { background: rgba(10,14,36,.8); margin: 0 -12px; }
   .adm-look-vn .adm-sug { margin-left: 0; margin-right: 0; }
   .adm-look-vn .adm-find { background: rgba(10,14,36,.84); border-bottom: 1px solid rgba(255,214,120,.3); }
   .adm-look-vn .adm-compose { background: rgba(10,14,36,.86); border-top: 1px solid rgba(255,214,120,.4); }
-  .adm-look-vn .adm-ta { border-radius: 8px; background: rgba(10,16,44,.85); border-color: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.55); color: #f0f2ff; }
+  .adm-look-vn .adm-ta { border-radius: 8px; background: rgba(10,16,44,.85); border-color: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,214,120,.5); color: #f0f2ff; }
   .adm-look-vn .adm-ta:focus { box-shadow: inset 0 0 0 1.5px #ffd678; }
-  .adm-look-vn .adm-tb { background: rgba(10,16,44,.7); border-color: rgba(255,255,255,.25); color: #dfe4ff; }
-  .adm-look-vn .adm-btn.adm-pri { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; font-weight: 700; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8); }
+  .adm-look-vn .adm-tb { background: rgba(10,16,44,.7); border-color: rgba(255,214,120,.22); color: #dfe4ff; }
+  .adm-look-vn .adm-btn.adm-pri { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
   .adm-look-vn .adm-btn.adm-pri:hover { color: #3a2a08; }
   .adm-look-vn .adm-sendbtn { border-radius: 8px; }
   .adm-look-vn .adm-sendbtn::after { content: ' ▶'; font-size: 10px; }
-  .adm-look-vn .adm-newpill { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 3px 10px rgba(0,0,0,.4); }
-  .adm-look-vn .adm-jump { background: #141a40; color: #ffd678; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 3px 10px rgba(0,0,0,.45); }
-  .adm-look-vn .adm-launch { background: linear-gradient(180deg, #2b2f6e, #141a40); color: #ffd678; box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 4px 16px rgba(0,0,0,.5); }
+  .adm-look-vn .adm-newpill { background: linear-gradient(180deg, #ffe08f, #f0b84a); color: #3a2a08; box-shadow: 0 3px 10px rgba(0,0,0,.4); }
+  .adm-look-vn .adm-jump { background: #141a40; color: #ffd678; box-shadow: 0 0 0 1.5px rgba(255,214,120,.5), 0 3px 10px rgba(0,0,0,.45); }
+  .adm-look-vn .adm-launch { background: linear-gradient(180deg, #2b2f6e, #141a40); color: #ffd678; box-shadow: 0 0 0 2px rgba(255,214,120,.5), 0 4px 16px rgba(0,0,0,.5); }
+
+  /* ---- 1.5.1: your own picture behind the chat (Options > Background) ---- */
+  /* behind the messages / the list (not the bars): the whole picture, the space around it in the picture's own edge colour */
+  .adm-root.adm-bgpic .adm-sw, .adm-root.adm-bgpic .adm-list {
+    background-image: linear-gradient(rgba(8,10,26,var(--adm-dim,.45)), rgba(8,10,26,var(--adm-dim,.45))), var(--adm-bgimg);
+    background-size: auto, contain; background-position: center; background-repeat: no-repeat; background-color: var(--adm-bgcol, #0b0e22); }
+  .adm-root.adm-bgpic.adm-bgfill .adm-sw, .adm-root.adm-bgpic.adm-bgfill .adm-list { background-size: auto, cover; }
+  /* plain backgrounds: dark, light, or the colour of AniList's own theme */
+  .adm-root.adm-bg-dark .adm-sw, .adm-root.adm-bg-dark .adm-list { background: #0a0d1a; }
+  .adm-root.adm-bg-light .adm-sw, .adm-root.adm-bg-light .adm-list { background: #eef1f6; }
+  .adm-root.adm-bg-anilist .adm-sw, .adm-root.adm-bg-anilist .adm-list { background: rgb(var(--adm-site-bg, 11,22,34)); }
+  .adm-root.adm-hasbg .adm-scroll { background-image: none; }
+  .adm-hasbg .adm-day, .adm-hasbg .adm-status, .adm-hasbg .adm-empty { opacity: 1; text-shadow: 0 1px 3px #000, 0 0 8px #000; }
+  .adm-root.adm-bg-light .adm-day, .adm-root.adm-bg-light .adm-status, .adm-root.adm-bg-light .adm-empty { color: #39456a; text-shadow: none; }
+  .adm-root.adm-bg-anilist .adm-day, .adm-root.adm-bg-anilist .adm-status, .adm-root.adm-bg-anilist .adm-empty { color: rgb(var(--adm-site-text, 159,173,189)); text-shadow: none; }
+  .adm-root.adm-bg-dark .adm-day, .adm-root.adm-bg-dark .adm-status { text-shadow: none; }
+  .adm-hasbg.adm-look-classic .adm-b { background: rgba(var(--color-foreground, 21,31,46), .9); }
+  .adm-hasbg.adm-look-classic .adm-mine .adm-b { background: linear-gradient(rgba(var(--color-blue), .25), rgba(var(--color-blue), .25)), rgb(var(--color-foreground, 21,31,46)); }
+  .adm-hasbg.adm-look-classic .adm-row { background: rgba(var(--color-foreground, 21,31,46), .82); }
+  .adm-hasbg.adm-look-classic .adm-row:hover { background: rgb(var(--color-foreground, 21,31,46)); }
+  .adm-hasbg.adm-look-vn .adm-row { background: rgba(10,16,44,.84); }
+  .adm-hasbg.adm-look-vn .adm-b { background: rgba(10,16,44,.9); }
+  .adm-hasbg.adm-look-vn .adm-mine .adm-b { background: rgba(46,20,54,.9); }
 
   /* phones: above AniList's own round menu button (bottom right) */
   @media (max-width: 760px) {
@@ -590,6 +618,7 @@
     rootEl = el('div', { class: 'adm-root' + (ui.big ? ' adm-big' : '') + (ui.min ? ' adm-min' : '') }, panel, launch);
     rootEl.style.setProperty('--adm-fs', ui.textSize || 1);
     applyLook();
+    loadBg();
     // phones: the on-screen keyboard covers the page without resizing it, so the chat moves up by what it hides
     if (window.visualViewport && !rootEl._kbFit) {
       const vv = window.visualViewport;
@@ -626,6 +655,105 @@
   const LOOKS = [['vn', 'Visual Novel'], ['classic', 'Classic']];
   const lookNow = () => (LOOKS.some(l => l[0] === ui.look) ? ui.look : 'vn');
   function applyLook() { for (const [k] of LOOKS) rootEl.classList.toggle('adm-look-' + k, lookNow() === k); }
+  // 1.5.1: your own picture behind the chat. It stays in this browser (made smaller, saved next to your own sounds).
+  let bgUrl = '', bgCol = '', bgNote = '', bgInput = null;
+  const bgDim = () => (ui.bgDim == null ? 0.45 : ui.bgDim);
+  const BG_MODES = [['look', 'Default'], ['dark', 'Dark'], ['light', 'Light'], ['anilist', 'AniList'], ['pic', 'Picture']];
+  const bgMode = () => (BG_MODES.some(m => m[0] === ui.bgMode) ? ui.bgMode : (ui.bg ? 'pic' : 'look'));
+  function applyBg() {
+    const mode = bgMode(), pic = mode === 'pic' && !!(ui.bg && bgUrl);
+    rootEl.classList.toggle('adm-hasbg', pic || mode === 'dark' || mode === 'light' || mode === 'anilist');
+    rootEl.classList.toggle('adm-bgpic', pic);
+    for (const k of ['dark', 'light', 'anilist']) rootEl.classList.toggle('adm-bg-' + k, mode === k);
+    rootEl.classList.toggle('adm-bgfill', pic && ui.bgFit === 'fill');
+    if (mode === 'anilist') {
+      // the site theme's own colours (the Visual Novel look replaces them inside the chat, so they are read from the page)
+      try {
+        const cs = getComputedStyle(document.body);
+        for (const [from, to] of [['--color-background', '--adm-site-bg'], ['--color-text', '--adm-site-text']]) {
+          const v = cs.getPropertyValue(from).trim();
+          if (v) rootEl.style.setProperty(to, v);
+        }
+      } catch (e) {}
+    }
+    if (pic) {
+      rootEl.style.setProperty('--adm-bgimg', 'url("' + bgUrl + '")');
+      rootEl.style.setProperty('--adm-dim', String(bgDim()));
+      if (bgCol) rootEl.style.setProperty('--adm-bgcol', bgCol); else rootEl.style.removeProperty('--adm-bgcol');
+    } else { rootEl.style.removeProperty('--adm-bgimg'); rootEl.style.removeProperty('--adm-bgcol'); }
+  }
+  // the colour of the picture's own edges (its left and right columns): it fills the space beside the whole picture,
+  // so a picture on white gives a fully white background (worked out once per page load on a 48 px copy)
+  async function edgeColour(blob) {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const c = document.createElement('canvas');
+      const S = 160;
+      c.width = S; c.height = S;
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = false; // real pixels, not a blend with what is next to the edge
+      g.drawImage(bmp, 0, 0, S, S);
+      if (bmp.close) bmp.close();
+      const d = g.getImageData(0, 0, S, S).data;
+      // the MOST COMMON colour on the outer ring (a foot or a strand of hair touching the edge must not tint it)
+      const groups = new Map();
+      const take = (x, y) => {
+        const i = (y * S + x) * 4, key = (d[i] >> 3) << 10 | (d[i + 1] >> 3) << 5 | (d[i + 2] >> 3);
+        const q = groups.get(key) || [0, 0, 0, 0];
+        q[0] += d[i]; q[1] += d[i + 1]; q[2] += d[i + 2]; q[3]++;
+        groups.set(key, q);
+      };
+      for (let k = 0; k < S; k++) { take(0, k); take(S - 1, k); take(k, 0); take(k, S - 1); }
+      let best = null;
+      for (const q of groups.values()) if (!best || q[3] > best[3]) best = q;
+      bgCol = 'rgb(' + [0, 1, 2].map(k => Math.round(best[k] / best[3])).join(',') + ')';
+    } catch (e) { bgCol = ''; }
+  }
+  async function loadBg() {
+    if (!ui.bg) { applyBg(); return; }
+    try {
+      const r = await soundFiles('readonly', st => st.get('bg'));
+      if (r && r.blob) { bgUrl = URL.createObjectURL(r.blob); await edgeColour(r.blob); }
+    } catch (e) {}
+    applyBg();
+  }
+  async function setBg(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      if (bmp.close) bmp.close();
+      const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
+      if (!blob) throw new Error('no picture');
+      await soundFiles('readwrite', st => st.put({ id: 'bg', blob }));
+      if (bgUrl) URL.revokeObjectURL(bgUrl);
+      bgUrl = URL.createObjectURL(blob);
+      await edgeColour(blob);
+      ui.bg = Date.now(); ui.bgMode = 'pic'; saveUi(); bgNote = '';
+    } catch (e) {
+      bgNote = 'That file is not a picture this browser can open.';
+    }
+    applyBg();
+    if (ui.open && !T) renderList();
+  }
+  function removeBg() {
+    ui.bg = 0; ui.bgMode = 'look'; saveUi(); bgNote = '';
+    soundFiles('readwrite', st => st.delete('bg')).catch(() => {});
+    if (bgUrl) URL.revokeObjectURL(bgUrl);
+    bgUrl = bgCol = '';
+    applyBg();
+    if (ui.open && !T) renderList();
+  }
+  function chooseBg() {
+    if (!bgInput) {
+      bgInput = el('input', { class: 'adm-bgfile', type: 'file', accept: 'image/*', style: 'display:none',
+        onchange: () => { const f = bgInput.files[0]; bgInput.value = ''; if (f) setBg(f); } });
+      document.body.append(bgInput);
+    }
+    bgInput.click();
+  }
   function svgChat() {
     const ns = 'http://www.w3.org/2000/svg';
     const s = document.createElementNS(ns, 'svg');
@@ -1355,6 +1483,23 @@
         el('div', { class: 'adm-size adm-looks' }, 'Look',
           ...LOOKS.map(([k, name]) => el('button', { class: 'adm-btn' + (lookNow() === k ? ' adm-pri' : ''), type: 'button',
             onclick: () => { ui.look = k; saveUi(); applyLook(); renderList(); } }, name))),
+        el('div', { class: 'adm-size adm-looks adm-bgmodes' }, 'Background',
+          ...BG_MODES.filter(m => m[0] !== 'pic').map(([k, name]) => el('button', { class: 'adm-btn' + (bgMode() === k ? ' adm-pri' : ''), type: 'button',
+            title: { look: 'The background of the look you picked', dark: 'A plain dark background', light: 'A plain light background', anilist: "The background colour of AniList's own theme" }[k],
+            onclick: () => { ui.bgMode = k; saveUi(); applyBg(); renderList(); } }, name))),
+        el('div', { class: 'adm-size adm-looks adm-bgopt', style: 'margin-left:22px' },
+          el('button', { class: 'adm-btn adm-bgpick' + (bgMode() === 'pic' ? ' adm-pri' : ''), type: 'button', title: 'A picture from this device behind the chat. It stays in this browser.',
+            onclick: () => { if (ui.bg && bgMode() !== 'pic') { ui.bgMode = 'pic'; saveUi(); applyBg(); renderList(); } else chooseBg(); } },
+            ui.bg ? (bgMode() === 'pic' ? 'Change picture' : 'Your picture') : 'Your own picture'),
+          ui.bg ? el('button', { class: 'adm-btn adm-bgrem', type: 'button', title: 'Take your picture out of this browser', onclick: removeBg }, 'Remove') : null),
+        ui.bg && bgMode() === 'pic' ? el('div', { class: 'adm-size adm-looks adm-bgfit', style: 'margin-left:22px' },
+          ...[['fit', 'Whole picture'], ['fill', 'Fill the chat']].map(([k, name]) => el('button', { class: 'adm-btn' + ((ui.bgFit || 'fit') === k ? ' adm-pri' : ''), type: 'button',
+            title: k === 'fit' ? 'The whole picture is shown, nothing cut off' : 'The picture fills the chat, its edges may be cut off',
+            onclick: () => { ui.bgFit = k; saveUi(); applyBg(); renderList(); } }, name))) : null,
+        ui.bg && bgMode() === 'pic' ? el('div', { class: 'adm-vol adm-bgdim' }, 'Darken',
+          el('input', { type: 'range', min: '0', max: '85', step: '1', value: String(Math.round(bgDim() * 100)), title: 'How dark the picture is behind the messages',
+            oninput: e => { ui.bgDim = +e.target.value / 100; saveUi(); applyBg(); } })) : null,
+        bgNote ? el('div', { class: 'adm-note adm-bad' }, bgNote) : null,
         el('div', { class: 'adm-sound' },
           el('label', {}, el('input', { type: 'checkbox', checked: ui.sound, onchange: e => { ui.sound = e.target.checked; saveUi(); if (ui.sound) nya(true); } }),
             'Sound for new messages ("…nya.")'),
