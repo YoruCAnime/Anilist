@@ -4,12 +4,17 @@ by **YoruC**
 
 | Tool | For | |
 |---|---|---|
+| **AniList App** | Phone: Firefox for Android + Tampermonkey (PC too) | [Guide + install](app) |
 | **AniList Chat Compressor** | PC (Chrome, Brave, Edge, Firefox + Tampermonkey) | [Guide + install](chat-compressor-pc) |
 | **AniList Chat Compressor (Mobile)** | Firefox for Android (Violentmonkey / Tampermonkey) | [Guide + install](chat-compressor-mobile) |
 | **AniList GIF & Picture Picker** | PC + Firefox for Android (Tampermonkey) | [Guide + install](gif-picker) |
 | **AniList Like Previews** | PC (Chrome, Brave, Edge, Firefox + Tampermonkey) | [Guide + install](like-previews) |
 | **AniList DMs** | PC + Firefox for Android (Tampermonkey) | [Guide + install](dms) |
 | **watchreading** | Bio card (Cloudflare + Tampermonkey on PC) | [Guide + install](watchreading) |
+
+AniList App makes AniList on your phone feel like an app: a bottom bar (Home, Watching, Search, Alerts, Me), double-tap
+likes, easy follows, +1 episode tracking, one-tap Plan / Watch and notifications with pictures. DMs, the GIF Picker,
+Like Previews and Chat View come inside it.
 
 The Chat Compressors make long AniList reply threads open instantly: the newest messages first, in a compact
 chat view that checks for new messages by itself.
