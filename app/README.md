@@ -13,6 +13,7 @@ AniList on your phone, like an app. One install, with [AniList DMs](../dms), the
 - **Search**: trending and this season's anime; tap **Watch** or **+ Plan** to add one, tap a cover for status, episodes and score
 - **Alerts**: notifications with pictures of what was liked, likes on the same post grouped, Follow back
 - **Profiles**: tap anyone's name; stats, watching now, favourites, followers / following with Follow buttons
+- **Writing posts and replies**: AniList's whole toolbar (bold, italic, strike, spoiler, link, picture, YouTube, video, quote, centre, header, lists, code), the GIF button, emojis, and a live preview that looks exactly like the posted text. Paste a picture, GIF, YouTube or video link and it becomes the right code by itself
 - **Chats**: the chat button above the bar (AniList DMs, with live chat)
 - Settings on **Me > ⚙**: dark / light, your colour, double-tap, vibration, each tool on or off
 
