@@ -10,6 +10,7 @@ by **YoruC**
 | **AniList GIF & Picture Picker** | PC + Firefox for Android (Tampermonkey) | [Guide + install](gif-picker) |
 | **AniList Like Previews** | PC (Chrome, Brave, Edge, Firefox + Tampermonkey) | [Guide + install](like-previews) |
 | **AniList DMs** | PC + Firefox for Android (Tampermonkey) | [Guide + install](dms) |
+| **AniList Tracker** | PC (Chrome, Brave, Edge, Firefox + Tampermonkey) | [Guide + install](tracker) |
 | **watchreading** | Bio card (Cloudflare + Tampermonkey on PC) | [Guide + install](watchreading) |
 
 AniList App makes AniList on your phone feel like an app: a bottom bar (Home, Watching, Search, Alerts, Me), double-tap
@@ -28,5 +29,8 @@ people liked as small cover squares.
 
 DMs puts your private AniList message chats behind a small chat button in the bottom-right corner of every
 page: newest messages first, a red number for new ones, live preview, likes, reply, edit and delete.
+
+AniList Tracker puts a daily / weekly board of your Watching list under your profile banner: what airs today, this
+week, what you need to catch up on, with one-click +1. Other people's profiles show what they are watching.
 
 watchreading is a "Currently Watching / Reading" card for your bio that updates itself.
