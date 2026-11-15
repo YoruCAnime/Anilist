@@ -4,6 +4,8 @@ by **YoruC**
 
 A daily / weekly board of your **Watching** list, right under the banner of your AniList profile.
 
+![AniList Tracker](preview.png)
+
 - **Today**: episodes airing today, with the time and a live countdown
 - **Catch up**: shows with aired episodes you haven't watched yet
 - **Week**: what airs in the next 7 days, day by day
