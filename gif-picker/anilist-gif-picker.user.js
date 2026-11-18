@@ -2,7 +2,7 @@
 // @name         AniList GIF & Picture Picker
 // @namespace    exos.anilist.gifpicker
 // @author       YoruC
-// @version      1.5.8
+// @version      1.5.9
 // @description  A GIF button in AniList's comment toolbar: search Tenor GIFs, SFW booru pictures (Safebooru, Konachan.net) and YouTube videos, or upload your own GIFs and videos to your GitHub repos, see previews and tap one (or pick several) to put img(link) into your comment, at the size you choose. Works in Tampermonkey on PC and on Firefox for Android.
 // @match        https://anilist.co/*
 // @grant        GM_xmlhttpRequest
@@ -50,6 +50,8 @@
 // 1.5.2: uploads are signed with the GitHub account's no-reply address (GitHub put its main email on API commits).
 // 1.5.7: AVIF pictures can be uploaded too (GitHub serves .avif as image/avif; Brave / Chrome / Firefox show them).
 // 1.5.8: Spoiler with Under each other: all of them share ONE spoiler, still one per line (it was one spoiler each).
+// 1.5.9: a short "no" from GitHub (403 with a good token: rate limit / hiccup) is sent again by itself (after 6 s,
+//        then 12 s) instead of the wrong "token is not allowed to write"; that message is kept for real token trouble.
 // - AniList's img( ) ends at the first ")", and ~! !~ is its spoiler, so ( ) ! ~ ' * and spaces in a link are
 //   written percent-encoded (same picture, spelled safely).
 (function () {
@@ -224,15 +226,16 @@
     try { console.info('[GIF Picker] upload timing (ms)', Object.assign({}, upLog, extra)); } catch (e) {}
   }
 
+  const RETRY_MS = (TEST && TEST.retryMs) || 6000; // wait before sending a refused upload again (6 s, then 12 s)
   // base64 of a file -> its raw.githubusercontent.com link
   async function ghUpload(c, name, b64) {
     const dir = ghPath(c);
     let t0 = Date.now();
     const who = await ghCommitter(c);
     upMark('lookupMs', t0);
-    for (let tries = 0; tries < 2; tries++) {
+    for (let tries = 0, renamed = 0, waits = 0; tries < 5; tries++) {
       t0 = Date.now();
-      const path = (dir ? dir + '/' : '') + (tries ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
+      const path = (dir ? dir + '/' : '') + (renamed ? name.replace(/(\.\w+)$/, '-' + Math.random().toString(36).slice(2, 6) + '$1') : name);
       const r = await ghSend('https://api.github.com/repos/' + c.repo + '/contents/' + path.split('/').map(encodeURIComponent).join('/'), {
         // 3 min, + 10 s per MB: a slow GitHub can take minutes and still save the file
         method: 'PUT', headers: ghHeaders(c), timeout: 180000 + Math.round(b64.length * 0.75 / 1048576) * 10000,
@@ -241,10 +244,19 @@
       upMark('sendMs', t0);
       upLog.status = r.status;
       const j = ghJson(r.text);
+      const said = String(j.message || '').slice(0, 200);
+      if (said) upLog.reply = said;
       if (r.status === 201 || r.status === 200) return rawUrl(c, path);
-      if (r.status === 422 && !tries) continue; // that name exists already: once more with a new name
+      if (r.status === 422 && !renamed) { renamed = 1; continue; } // that name exists already: once more with a new name
       if (r.status === 401) throw new Error('GitHub did not accept the token (wrong, expired or deleted)');
-      if (r.status === 403 || r.status === 404) throw new Error('The token is not allowed to write to ' + c.repo + ' (give it Contents: Read and write)');
+      // 403 is also GitHub's "not now" (rate limit, a hiccup) with a perfectly good token - a 23 MB GIF got one
+      // on 2026-11-18 and went through minutes later. Only its own "not accessible" words mean the token.
+      if (r.status === 404 || (r.status === 403 && /not accessible|permission|not authorized|forbids/i.test(said)))
+        throw new Error('The token is not allowed to write to ' + c.repo + ' (give it Contents: Read and write)');
+      if (r.status === 403 || r.status === 429) {
+        if (waits < 2) { waits++; upLog.retries = waits; await new Promise(res => setTimeout(res, waits * RETRY_MS)); continue; }
+        throw new Error('GitHub refused the upload for now' + (said ? ' ("' + said + '")' : '') + '. Your token is fine: try again in a minute');
+      }
       if (r.status === 413) throw new Error('Too big for GitHub');
       throw new Error('GitHub answered ' + r.status + (j.message ? ': ' + j.message : ''));
     }
