@@ -1,20 +1,83 @@
 // ==UserScript==
 // @name         ifviewer
 // @namespace    ifs
-// @version      1.0.0
+// @version      1.1.0
 // @description  Viewer for IF: the whole gallery as one scroller of the originals. Loads ahead, remembers where you were, long-press / right-click saves the original.
-// @match        https://www.imagefap.com/pictures/*
-// @match        https://www.imagefap.com/gallery/*
-// @match        https://www.imagefap.com/gallery.php*
+// @match        https://www.imagefap.com/*
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/ccr-dead577e-viwlwo/ifviewer/ifviewer.user.js
 // @downloadURL  https://raw.githubusercontent.com/YoruCAnime/Anilist/ccr-dead577e-viwlwo/ifviewer/ifviewer.user.js
-// @run-at       document-end
+// @run-at       document-start
 // @grant        GM_download
+// @grant        unsafeWindow
 // @noframes
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  // ---------- ad / popup blocker (whole site) ----------
+  (function blocker() {
+    if (/verif|captcha/i.test(location.pathname)) return; // never touch the captcha page
+    const base = location.hostname.split('.').slice(-2).join('.');
+    const ALLOW = [base, 'googleapis.com', 'gstatic.com', 'google.com', 'recaptcha.net', 'hcaptcha.com',
+      'cloudflare.com', 'jquery.com', 'jsdelivr.net'];
+    const allowed = (url) => {
+      if (!url) return true;
+      try {
+        const u = new URL(url, location.href);
+        if (!/^https?:$/.test(u.protocol)) return true;
+        return ALLOW.some((d) => u.hostname === d || u.hostname.endsWith('.' + d));
+      } catch (e) { return true; }
+    };
+
+    // 1. no script may open a new tab or window
+    const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const noop = function () { return null; };
+    try { page.open = typeof exportFunction === 'function' ? exportFunction(noop, page) : noop; } catch (e) {}
+    try {
+      const sc = document.createElement('script');
+      sc.textContent = 'try{window.open=function(){return null}}catch(e){}';
+      (document.head || document.documentElement).appendChild(sc);
+      sc.remove();
+    } catch (e) {}
+
+    // 2. scripts and frames from other sites never run
+    const kill = (n) => {
+      if (n.nodeType !== 1) return;
+      if (n.tagName === 'SCRIPT') {
+        if (n.src && !allowed(n.src)) { n.type = 'javascript/blocked'; n.remove(); }
+      } else if (n.tagName === 'IFRAME' || n.tagName === 'EMBED' || n.tagName === 'OBJECT') {
+        const src = n.src || n.data || '';
+        if (!src || !allowed(src)) n.remove();
+      } else if (n.querySelectorAll) {
+        n.querySelectorAll('script[src],iframe,embed,object').forEach(kill);
+      }
+    };
+    new MutationObserver((muts) => {
+      for (const m of muts) for (const n of m.addedNodes) kill(n);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    document.addEventListener('beforescriptexecute', (e) => {
+      const n = e.target;
+      if (n && n.src && !allowed(n.src)) { e.preventDefault(); n.remove(); }
+    }, true);
+
+    // 3. taps on links that lead to other sites and open a new tab are ads
+    window.addEventListener('click', (e) => {
+      const a = e.target && e.target.closest && e.target.closest('a[href]');
+      if (!a || a.closest('#ifs-root')) return;
+      if (!allowed(a.href) && (a.target === '_blank' || a.querySelector('img'))) {
+        e.preventDefault(); e.stopImmediatePropagation();
+      }
+    }, true);
+
+    // 4. hide what is left
+    const st = document.createElement('style');
+    st.textContent = 'iframe,embed,object,ins,[id^="exo"],[class^="exo"],[class*="adsby"],[id*="banner" i],[class*="banner" i],[class*="popunder" i]{display:none!important}';
+    (document.head || document.documentElement).appendChild(st);
+  })();
+
+  // the viewer itself only runs on gallery pages
+  if (!/^\/(pictures|gallery)\/|^\/gallery\.php/.test(location.pathname)) return;
 
   const PER_BATCH = 24;          // the site hands out original links 24 at a time
   const REQUEST_GAP = 250;       // ms between requests to the site (avoids the captcha)
@@ -214,12 +277,17 @@
     fab.hidden = on;
   }
 
+  function openTab(url) {
+    const a = el('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    root.appendChild(a); a.click(); a.remove();
+  }
+
   function save(it) {
     if (!it.url) return;
     const name = (it.url.split('?')[0].split('/').pop()) || (it.id + '.jpg');
     try {
-      GM_download({ url: it.url, name, headers: { Referer: ORIGIN + '/' }, onerror: () => window.open(it.url, '_blank') });
-    } catch (e) { window.open(it.url, '_blank'); }
+      GM_download({ url: it.url, name, headers: { Referer: ORIGIN + '/' }, onerror: () => openTab(it.url) });
+    } catch (e) { openTab(it.url); }
   }
 
   const CSS = `
@@ -338,7 +406,7 @@
   }
 
   // ---------- start ----------
-  (async function init() {
+  const ready = () => (async function init() {
     const here = parseThumbs(document);
     let all = [];
     try {
@@ -360,4 +428,6 @@
 
     build(start, savedIndex());
   })();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true });
+  else ready();
 })();
