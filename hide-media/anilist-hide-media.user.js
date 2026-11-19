@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         AniList Hide Media
 // @namespace    yoruc-anilist
-// @version      1.1.1
+// @version      1.2.0
 // @author       YoruC
 // @license      MIT
 // @homepageURL  https://github.com/YoruCAnime/Anilist/tree/main/hide-media
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/hide-media/anilist-hide-media.user.js
 // @downloadURL  https://raw.githubusercontent.com/YoruCAnime/Anilist/refs/heads/main/hide-media/anilist-hide-media.user.js
-// @description  Every picture, GIF, video and YouTube clip other people post on AniList is folded away like a spoiler until you click it.
+// @description  In the AniList DMs chat, every picture, GIF, video and YouTube clip other people send is folded away like a spoiler until you click it.
 // @match        https://anilist.co/*
 // @run-at       document-start
 // @noframes
@@ -22,7 +22,6 @@
 
   // What counts as media inside a post. AniList's own spoilers are left alone (already hidden).
   const MEDIA = 'img, video, .youtube, lite-youtube, iframe';
-  const SCOPE = ':is(.markdown, .adm-text)';   // .adm-text = chat bubbles of the AniList DMs plugin
   const BOXES = '.reply, .activity-entry, .comment-wrap, .comment, .review, .message';
   const MINE = '.activity-edit, .markdown-editor, .preview, .el-dialog, .adm-preview';
 
@@ -32,6 +31,9 @@
   };
   let on = store.get('on', true);
   let ownToo = store.get('ownToo', false);
+  // Only the chat of the AniList DMs plugin (.adm-text bubbles) unless "on the site too" is switched on in the menu.
+  const site = store.get('site', false);
+  const SCOPE = site ? ':is(.markdown, .adm-text)' : '.adm-text';
 
   const css = `
 html:not(.ash-off) ${SCOPE} :is(${MEDIA}):not(.ash-show):not(.markdown-spoiler *) { display: none !important; }
@@ -183,8 +185,11 @@ html.ash-off .ash-pill { display: none !important; }
     GM_registerMenuCommand('Hiding on / off', () => {
       on = !on; store.set('on', on); applyOn(); resetAll();
     });
-    GM_registerMenuCommand('Hide my own posts too: on / off', () => {
+    GM_registerMenuCommand('Hide my own messages too: on / off', () => {
       ownToo = !ownToo; store.set('ownToo', ownToo); resetAll();
+    });
+    GM_registerMenuCommand(site ? 'On the site too: ON (click = DM chat only)' : 'On the site too: OFF (click = also posts on AniList)', () => {
+      store.set('site', !site); location.reload();
     });
   }
 })();

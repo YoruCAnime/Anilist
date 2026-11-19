@@ -34,7 +34,7 @@ page: newest messages first, a red number for new ones, live preview, likes, rep
 AniList Tracker puts a daily / weekly board of your Watching list under your profile banner: what airs today, this
 week, what you need to catch up on, with one-click +1. Other people's profiles show what they are watching.
 
-Hide Media folds away every picture, GIF and video other people post (also in the DMs chat), like a spoiler,
+Hide Media folds away every picture, GIF and video other people send in the DMs chat, like a spoiler,
 until you click it.
 
 watchreading is a "Currently Watching / Reading" card for your bio that updates itself.
