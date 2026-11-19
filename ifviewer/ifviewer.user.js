@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ifviewer
 // @namespace    ifs
-// @version      1.1.0
+// @version      1.2.0
 // @description  Viewer for IF: the whole gallery as one scroller of the originals. Loads ahead, remembers where you were, long-press / right-click saves the original.
 // @match        https://www.imagefap.com/*
 // @updateURL    https://raw.githubusercontent.com/YoruCAnime/Anilist/ccr-dead577e-viwlwo/ifviewer/ifviewer.user.js
@@ -30,6 +30,8 @@
       } catch (e) { return true; }
     };
 
+    const AD_CODE = /exoclick|exosrv|exdynsrv|magsrv|tsyndicate|juicyads|adsterra|popunder|popads|popcash|trafficjunky|trafficstars|adnxs|doubleclick|googlesyndication|clickadu|hilltopads|propellerads|adskeeper|mgid\./i;
+
     // 1. no script may open a new tab or window
     const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const noop = function () { return null; };
@@ -45,7 +47,7 @@
     const kill = (n) => {
       if (n.nodeType !== 1) return;
       if (n.tagName === 'SCRIPT') {
-        if (n.src && !allowed(n.src)) { n.type = 'javascript/blocked'; n.remove(); }
+        if (n.src ? !allowed(n.src) : AD_CODE.test(n.textContent || '')) { n.type = 'javascript/blocked'; n.remove(); }
       } else if (n.tagName === 'IFRAME' || n.tagName === 'EMBED' || n.tagName === 'OBJECT') {
         const src = n.src || n.data || '';
         if (!src || !allowed(src)) n.remove();
@@ -58,22 +60,47 @@
     }).observe(document.documentElement, { childList: true, subtree: true });
     document.addEventListener('beforescriptexecute', (e) => {
       const n = e.target;
-      if (n && n.src && !allowed(n.src)) { e.preventDefault(); n.remove(); }
+      if (n && (n.src ? !allowed(n.src) : AD_CODE.test(n.textContent || ''))) { e.preventDefault(); n.remove(); }
     }, true);
 
     // 3. taps on links that lead to other sites and open a new tab are ads
     window.addEventListener('click', (e) => {
       const a = e.target && e.target.closest && e.target.closest('a[href]');
       if (!a || a.closest('#ifs-root')) return;
-      if (!allowed(a.href) && (a.target === '_blank' || a.querySelector('img'))) {
+      if (!allowed(a.href)) {
         e.preventDefault(); e.stopImmediatePropagation();
       }
     }, true);
 
     // 4. hide what is left
     const st = document.createElement('style');
-    st.textContent = 'iframe,embed,object,ins,[id^="exo"],[class^="exo"],[class*="adsby"],[id*="banner" i],[class*="banner" i],[class*="popunder" i]{display:none!important}';
+    st.textContent = 'a[href^="http"]:not([href*="' + base + '"]),a[href^="//"]:not([href*="' + base + '"]),.ifs-ad,html.ifs-on>*:not(head):not(body),' +
+      'iframe,embed,object,ins,[id^="exo"],[class^="exo"],[class*="adsby"],[id*="banner" i],[class*="banner" i],[class*="popunder" i]{display:none!important}';
     (document.head || document.documentElement).appendChild(st);
+
+    // 5. boxes labelled as sponsored / advertisement, and boxes that only hold links to other sites
+    const sweep = () => {
+      if (!document.body) return;
+      document.querySelectorAll('a[href]').forEach((a) => {
+        if (allowed(a.href) || a.closest('#ifs-root')) return;
+        a.classList.add('ifs-ad');
+        let box = a.parentElement;
+        for (let k = 0; box && k < 3 && box !== document.body; k++, box = box.parentElement) {
+          if ([...box.querySelectorAll('a[href]')].some((x) => allowed(x.href))) break;
+          box.classList.add('ifs-ad');
+        }
+      });
+      document.querySelectorAll('div,td,span,center,section,aside,p,b,font').forEach((e) => {
+        const t = (e.textContent || '').trim();
+        if (t.length > 40 || !/sponsor|advertis/i.test(t) || e.closest('#ifs-root')) return;
+        e.classList.add('ifs-ad');
+        const box = e.parentElement;
+        if (box && box !== document.body && !box.querySelector('a[href*="/photo/"]') && (box.textContent || '').trim().length < 400) box.classList.add('ifs-ad');
+      });
+    };
+    document.addEventListener('DOMContentLoaded', sweep);
+    window.addEventListener('load', sweep);
+    setInterval(sweep, 2500);
   })();
 
   // the viewer itself only runs on gallery pages
@@ -82,6 +109,7 @@
   const PER_BATCH = 24;          // the site hands out original links 24 at a time
   const REQUEST_GAP = 250;       // ms between requests to the site (avoids the captcha)
   const ORIGIN = location.origin;
+  const BASE = location.hostname.split('.').slice(-2).join('.');
 
   // ---------- which gallery ----------
   const qs = new URLSearchParams(location.search);
@@ -100,8 +128,8 @@
 
   let queue = Promise.resolve();
   let captcha = false;
-  function getText(url) {
-    const run = async () => {
+  async function fetchText(url) {
+    {
       const res = await fetch(url, {
         credentials: 'same-origin',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -113,9 +141,11 @@
         throw new Error('captcha');
       }
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      await sleep(REQUEST_GAP);
       return text;
-    };
+    }
+  }
+  function getText(url) {
+    const run = async () => { const t = await fetchText(url); await sleep(REQUEST_GAP); return t; };
     const p = queue.then(run, run);
     queue = p.catch(() => {});
     return p;
@@ -134,7 +164,11 @@
       seen.add(m[1]);
       const img = a.querySelector('img');
       const thumb = img.getAttribute('data-src') || img.getAttribute('src') || '';
-      out.push({ id: m[1], thumb: thumb ? new URL(thumb, ORIGIN).href : '' });
+      let turl = '';
+      try { turl = thumb ? new URL(thumb, ORIGIN).href : ''; } catch (e) {}
+      if (turl && !new URL(turl).hostname.endsWith(BASE)) continue; // not one of the gallery's pictures
+      try { if (!new URL(a.getAttribute('href'), ORIGIN).hostname.endsWith(BASE)) continue; } catch (e) { continue; }
+      out.push({ id: m[1], thumb: turl });
     }
     return out;
   }
@@ -408,13 +442,66 @@
   // ---------- start ----------
   const ready = () => (async function init() {
     const here = parseThumbs(document);
-    let all = [];
-    try {
-      const html = await getText(`${ORIGIN}/gallery.php?gid=${gid}&view=2`);
-      all = parseThumbs(new DOMParser().parseFromString(html, 'text/html'));
-    } catch (e) { /* use what this page shows */ }
-    if (all.length < here.length) all = here;
-    if (!all.length) return;
+    if (!here.length) return;
+    const status = el('div', '', 'Loading the whole gallery…');
+    status.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:2147483647;background:#000c;color:#fff;font:14px sans-serif;padding:8px 14px;border-radius:18px';
+    document.body.appendChild(status);
+
+    const herePage = parseInt(qs.get('page'), 10) || 0;
+    const pageUrl = (n) => {
+      const p = new URLSearchParams(location.search);
+      p.set('gid', gid); p.set('page', n); p.set('view', '0');
+      return ORIGIN + location.pathname + '?' + p;
+    };
+    const lastPage = (doc) => {
+      let max = 0;
+      doc.querySelectorAll('a[href*="page="]').forEach((a) => {
+        const h = a.getAttribute('href') || '';
+        if (/gid=/.test(h) && !h.includes('gid=' + gid)) return;
+        const m = h.match(/[?&]page=(\d+)/);
+        if (m) max = Math.max(max, +m[1]);
+      });
+      return max;
+    };
+    const pages = new Map([[herePage, here]]);
+    let max = Math.max(herePage, lastPage(document));
+    const grab = async (n) => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const doc = new DOMParser().parseFromString(await fetchText(pageUrl(n)), 'text/html');
+          max = Math.max(max, lastPage(doc));
+          return parseThumbs(doc);
+        } catch (e) { if (captcha) return []; await sleep(700 * (attempt + 1)); }
+      }
+      return [];
+    };
+    let next = 0;
+    const worker = async () => {
+      while (next <= max && !captcha) {
+        const n = next++;
+        if (pages.has(n)) continue;
+        pages.set(n, await grab(n));
+        status.textContent = 'Loading the whole gallery… ' + pages.size + ' / ' + (max + 1) + ' pages';
+        await sleep(120);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    // the page list may not show the real last page: keep going until a page brings nothing new
+    const known = new Set();
+    for (const list of pages.values()) for (const t of list) known.add(t.id);
+    for (let n = max + 1; n < max + 500 && !captcha; n++) {
+      const more = (await grab(n)).filter((t) => !known.has(t.id));
+      if (!more.length) break;
+      more.forEach((t) => known.add(t.id));
+      pages.set(n, more);
+    }
+    status.remove();
+
+    const all = [];
+    const seen = new Set();
+    for (const n of [...pages.keys()].sort((a, b) => a - b)) {
+      for (const t of pages.get(n)) if (!seen.has(t.id)) { seen.add(t.id); all.push(t); }
+    }
 
     items = all.map((t) => ({ id: t.id, thumb: t.thumb, url: '' }));
     items.forEach((it) => byId.set(it.id, it));
