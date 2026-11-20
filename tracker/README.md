@@ -11,6 +11,7 @@ A daily / weekly board of your **Watching** list, right under the banner of your
 - **Week**: what airs in the next 7 days, day by day
 - **All**: your whole Watching list, next episode first
 - **+1** on a card marks the next episode watched; the **⋯** button edits status, episodes and score
+- Every cover says **Watched** or **Not yet watched** for that card's episode (red once it has aired, grey before)
 - On **other people's profiles** you see what *they* are watching (Today / Week / All, read only)
 
 It finds your account by itself: nothing to set up, just be logged in to AniList.

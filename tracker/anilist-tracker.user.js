@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AniList Tracker
 // @namespace    yoruc.anilist.tracker
-// @version      5.2.0
+// @version      5.3.0
 // @description  Daily / weekly / watching board on your AniList profile: what airs today, this week, what you need to catch up on, one-click +1. Other people's profiles show what they are watching.
 // @author       YoruC
 // @license      MIT
@@ -24,6 +24,11 @@
  * INSTALL
  *   Install Tampermonkey, then open the @downloadURL link above: Tampermonkey shows an Install button.
  *   It finds your AniList name by itself (the account you are logged in with); updates come by themselves.
+ *
+ * WHAT CHANGED IN 5.3
+ *   - Every cover says "Watched" (green) or "Not yet watched" for the episode the card is about: today's episode
+ *     on Today, that day's episode on Week, the newest aired one on Catch up / All. Red = it has aired and is
+ *     not watched, grey = it has not aired yet. Works on your board and on other people's.
  *
  * WHAT CHANGED IN 5.2
  *   - Works for anyone: your own profile is found from your AniList login (CONFIG.username can still force a name).
@@ -1008,6 +1013,7 @@
         --dusk-soft: rgba(157, 140, 240, 0.18);
         --dusk-deep: rgba(76, 60, 140, 0.30);
         --red: #e85d75;
+        --green: #7bc874;
         --red-soft: rgba(232, 93, 117, 0.16);
         /* the board's own dark card colours (AniList's dark theme), so it reads the same on the light theme too */
         --txt: #9fadbd;
@@ -1140,6 +1146,27 @@
         background: var(--sunken);
       }
       #${ROOT} .aca-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      /* "Watched" / "Not yet watched": on the cover in the cards layout, a small chip in the other layouts */
+      #${ROOT} .aca-seen {
+        display: inline-flex; align-items: center; gap: 3px;
+        padding: 2px 6px; border-radius: 999px;
+        font-size: 9px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.3;
+        white-space: nowrap;
+        background: rgba(11, 22, 34, 0.86); color: var(--txt);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      #${ROOT} .aca-seen.is-yes { color: var(--green); box-shadow: inset 0 0 0 1px rgba(123, 200, 116, 0.55); }
+      #${ROOT} .aca-seen.is-no { color: #ff8fa3; box-shadow: inset 0 0 0 1px rgba(232, 93, 117, 0.6); }
+      #${ROOT} .aca-seen.is-wait { color: var(--txt); }
+      #${ROOT} .aca-thumb .aca-seen { display: none; }
+      #${ROOT}[data-layout="cards"] .aca-thumb { position: relative; }
+      #${ROOT}[data-layout="cards"] .aca-thumb .aca-seen {
+        display: inline-flex; position: absolute; left: 5px; top: 5px; max-width: calc(100% - 10px);
+        box-shadow: inset 0 0 0 1px var(--line), 0 2px 6px rgba(0, 0, 0, 0.45);
+      }
+      #${ROOT}[data-layout="cards"] .aca-thumb .aca-seen.is-yes { box-shadow: inset 0 0 0 1px rgba(123, 200, 116, 0.55), 0 2px 6px rgba(0, 0, 0, 0.45); }
+      #${ROOT}[data-layout="cards"] .aca-thumb .aca-seen.is-no { box-shadow: inset 0 0 0 1px rgba(232, 93, 117, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45); }
+      #${ROOT} .aca-side .aca-thumb .aca-seen { display: none; }
       #${ROOT} .aca-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
       #${ROOT} .aca-name {
         color: var(--hi); font-size: 12.5px; font-weight: 700; line-height: 1.25;
@@ -1442,6 +1469,36 @@
     ]);
   }
 
+  // "Watched" / "Not yet watched" for the episode this card is about: today's episode (Today), that day's
+  // episode (Week), the newest aired episode (Catch up / All; the next one when nothing has aired yet).
+  function seenNode(item, mode, now, air) {
+    let ep = null;
+    let at = 0;
+    if (mode === "today") {
+      const e = todayEpisode(item);
+      ep = e.episode;
+      at = e.airingAt;
+    } else if (mode === "week") {
+      ep = air.episode;
+      at = air.airingAt;
+    } else {
+      const aired = airedCount(item);
+      if (aired != null && aired >= 1) ep = aired;
+      else {
+        const up = upcomingOf(item);
+        if (!up) return null;
+        ep = up.episode;
+        at = up.airingAt;
+      }
+    }
+    if (ep == null) return null;
+    const watched = (item.progress || 0) >= ep;
+    const airedYet = at * 1000 <= now;
+    const cls = watched ? "is-yes" : airedYet ? "is-no" : "is-wait";
+    const tip = "EP " + ep + (watched ? " · watched" : airedYet ? " has aired · not watched yet" : " has not aired yet");
+    return el("span", { class: "aca-seen " + cls, title: tip, text: watched ? "✓ Watched" : "Not yet watched" });
+  }
+
   // One list row. mode: today | behind | week | all. air: the airing this row is about (week tab).
   function row(item, mode, now, allowEdit, air) {
     const st = cardState(item, now);
@@ -1479,6 +1536,8 @@
     // READY / N BEHIND only on your own board; on someone else's the progress number is enough.
     const chip = allowEdit !== "other" && (st.tag === "ready" || st.tag === "behind") ? span("aca-chip " + st.tag, st.text) : null;
     const canPlus = allowEdit === true && (!item.episodes || progress < item.episodes);
+    const onCover = CONFIG.layout === "cards";
+    const seen = seenNode(item, mode, now, air);
 
     return el("div", { class: "aca-row " + st.cls }, [
       el("a", { class: "aca-thumb", href: item.url, title: item.title }, [
@@ -1489,12 +1548,14 @@
           loading: "lazy",
           decoding: "async",
         }),
+        onCover ? seen : null,
       ]),
       el("div", { class: "aca-main" }, [
         el("a", { class: "aca-name", href: item.url, title: item.title, text: item.title }),
         el("div", { class: "aca-sub" }, sub),
       ]),
       el("div", { class: "aca-right" }, [
+        onCover ? null : seen,
         progressNode(item),
         chip,
         canPlus ? plusButton(item) : null,
